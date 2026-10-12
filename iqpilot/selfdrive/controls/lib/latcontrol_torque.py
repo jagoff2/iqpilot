@@ -11,6 +11,7 @@ import numpy as np
 from iqpilot.cereal import log
 from iqdbc.car import structs
 from iqdbc.car.lateral import FRICTION_THRESHOLD, get_friction
+from iqdbc.car.hyundai.values import HyundaiFlags
 from iqdbc.car.toyota.values import ToyotaFlags
 from iqdbc.lvbs.car.interfaces import LatControlInputs
 from iqdbc.lvbs.car.iq_lateral import get_friction as get_friction_in_torque_space
@@ -180,11 +181,10 @@ PLAN_SAMPLE_START = 5
 LAG_EXTRA_S = 0.0
 JERK_AHEAD_TAU_S = 0.15
 JERK_PARAM_REFRESH = 100
+STEERING_RATE_FILTER_SECONDS = 0.05
 
 BASE_P = 0.8
 BASE_I = 0.15
-PID_SPEED_BP = [1, 1.5, 2.0, 3.0, 5, 7.5, 10, 15, 30]
-PID_P_GAIN = [250, 120, 65, 30, 11.5, 5.5, 3.5, 2.0, BASE_P]
 
 _JERK_FALLBACK_IDX = 16
 
@@ -232,7 +232,7 @@ class PilotLateralBrain:
     self.jerk_obs = 0.0
     self.jerk_ahead = 0.0
     self._ff = 0.0
-    self._pid = PIDController([PID_SPEED_BP, PID_P_GAIN], BASE_I)
+    self._pid = PIDController(BASE_P, BASE_I, rate=1 / torque_ctrl.dt)
     self._pid_log = None
     self._accel_goal = 0.0
     self._accel_obs = 0.0
@@ -249,7 +249,12 @@ class PilotLateralBrain:
     self.friction_look_ahead_bp = [9.0, 30.0]
     self.lat_jerk_friction_factor = 0.4
     self.lat_accel_friction_factor = 0.7
-    self._jerk_lp = FirstOrderFilter(0.0, JERK_AHEAD_TAU_S, 0.01)
+    self._jerk_lp = FirstOrderFilter(0.0, JERK_AHEAD_TAU_S, torque_ctrl.dt)
+    # Classic Hyundai SAS_Speed is an unsigned magnitude. Use the signed raw
+    # angle derivative, filtered across quantized/repeated CAN samples, instead.
+    self._steering_rate_from_angle = cp.brand == "hyundai" and not (cp.flags & HyundaiFlags.CANFD)
+    self._last_steering_angle = None
+    self._steering_rate_filter = FirstOrderFilter(0.0, STEERING_RATE_FILTER_SECONDS, torque_ctrl.dt)
     self._jerk_gain = 1.0
     self._jerk_param_frame = 0
     self._jerk_param_ok = True
@@ -273,7 +278,20 @@ class PilotLateralBrain:
     return self.lat_accel_friction_factor * error + self.lat_jerk_friction_factor * self.jerk_ahead
 
   def _measured_jerk(self, car_state, vehicle_model) -> float:
-    curvature_rate = -vehicle_model.calc_curvature(math.radians(car_state.steeringRateDeg), car_state.vEgo, 0.0)
+    steering_rate = car_state.steeringRateDeg
+    if self._steering_rate_from_angle:
+      angle = car_state.steeringAngleDeg
+      if not math.isfinite(angle):
+        self._last_steering_angle = None
+        self._steering_rate_filter.x = 0.0
+        raise ValueError("Nonfinite steering angle for NNFF jerk")
+      if self._last_steering_angle is None:
+        steering_rate = 0.0
+      else:
+        steering_rate = (angle - self._last_steering_angle) / self.lac_torque.dt
+      self._last_steering_angle = angle
+      steering_rate = self._steering_rate_filter.update(steering_rate)
+    curvature_rate = -vehicle_model.calc_curvature(math.radians(steering_rate), car_state.vEgo, 0.0)
     return curvature_rate * car_state.vEgo ** 2
 
   def _horizon_index(self, speed_mps: float) -> int:
@@ -310,6 +328,7 @@ class PilotLateralBrain:
     self.jerk_ahead = sign_locked_min(window, desired_jerk)
     self.jerk_ahead = self._jerk_lp.update(self.jerk_ahead) * self._jerk_gain
 
+    self.lat_accel_friction_factor = 0.7
     if self.jerk_ahead == 0.0:
       self.jerk_now = 0.0
       self.lat_accel_friction_factor = 1.0
@@ -409,6 +428,8 @@ class NeuralNetworkFeedForward(PilotLateralBrain):
     self._window.roll.clear()
     self._window.lat_accel_desired.clear()
     self._jerk_lp.x = 0.0
+    self._last_steering_angle = None
+    self._steering_rate_filter.x = 0.0
     self.pitch.x = 0.0
     self.pitch_last = 0.0
     self.lat_accel_friction_factor = 0.7
@@ -485,8 +506,8 @@ class NeuralNetworkFeedForward(PilotLateralBrain):
     friction_input = self.update_friction_input(self._accel_goal, self._accel_obs)
     self._ff = self._query(self._want_la, friction_input, accel_ctx + roll_ctx)
     if self.model.friction_override:
-      self._pid_log.error += get_friction(friction_input, self._deadband,
-                                          FRICTION_THRESHOLD, self.lac_torque.torque_params)
+      self._pid_log.error += get_friction_in_torque_space(friction_input, self._deadband,
+                                                         FRICTION_THRESHOLD, self.lac_torque.torque_params)
 
     self.update_output_torque(CS)
 
@@ -524,8 +545,9 @@ class NeuralNetworkFeedForward(PilotLateralBrain):
     self._snapshot_cycle(feedforward_seed, pid_core, pid_trace, torque_goal, torque_actual, roll_bias,
                          deadzone, lat_accel_goal, lat_accel_actual, curvature_goal, curvature_actual,
                          gravity_lat_accel, safety_limited, torque_output)
-    self.update_calculations(car_state, vehicle_model, lat_accel_goal)
-    self.update_neural_network_feedforward(car_state, calibrator, calibrated_pose)
+    if self._nnff_enabled:
+      self.update_calculations(car_state, vehicle_model, lat_accel_goal)
+      self.update_neural_network_feedforward(car_state, calibrator, calibrated_pose)
     self._out_tq = self.nav_torque_pulse.nudge_output_torque(True, car_state, self._out_tq)
     return self._pid_log, self._out_tq
 
@@ -533,8 +555,10 @@ class NeuralNetworkFeedForward(PilotLateralBrain):
 KP = 0.8
 KI = 0.15
 
-INTERP_SPEEDS = [1, 1.5, 2.0, 3.0, 5, 7.5, 10, 15, 30]
-KP_INTERP = [250, 120, 65, 30, 11.5, 5.5, 3.5, 2.0, KP]
+# Preserve the existing gain curve from 7.5 m/s upward. Below that speed, hold
+# the 7.5 m/s gain instead of magnifying small errors by as much as 250.
+INTERP_SPEEDS = [0, 7.5, 10, 15, 30]
+KP_INTERP = [5.5, 5.5, 3.5, 2.0, KP]
 
 LP_FILTER_CUTOFF_HZ = 1.2
 JERK_LOOKAHEAD_SECONDS = 0.19
@@ -556,9 +580,9 @@ class LatControlTorque(LatControl):
     self.hkg_reduced_torque_feedback = (CP.brand == "hyundai" and
                                         params.get_bool("IQHkgReducedTorqueFeedback") and
                                         not params.get_bool("NeuralNetworkFeedForward"))
-    p_gains = [gain * 0.8 for gain in KP_INTERP] if self.hkg_reduced_torque_feedback else KP_INTERP
+    self.standard_p_gains = [gain * 0.8 for gain in KP_INTERP] if self.hkg_reduced_torque_feedback else KP_INTERP
     self.friction_scale = 0.7 if self.hkg_reduced_torque_feedback else 1.0
-    self.pid = PIDController([INTERP_SPEEDS, p_gains], KI, rate=1/self.dt)
+    self.pid = PIDController([INTERP_SPEEDS, self.standard_p_gains], KI, rate=1/self.dt)
     self._nnff_active = False
     self.update_limits()
     self.steering_angle_deadzone_deg = self.torque_params.steeringAngleDeadzoneDeg
@@ -582,10 +606,19 @@ class LatControlTorque(LatControl):
 
   def update_limits(self):
     if self._nnff_active:
+      # NNFF already compensates low-speed curvature in its model inputs. Its
+      # torque-space feedback must not also inherit acceleration-space gains.
+      self.pid._k_p = [[0.0], [BASE_P]]
       self.pid.set_limits(self.steer_max, -self.steer_max)
     else:
+      self.pid._k_p = [INTERP_SPEEDS, self.standard_p_gains]
       self.pid.set_limits(self.lateral_accel_from_torque(self.steer_max, self.torque_params),
                           self.lateral_accel_from_torque(-self.steer_max, self.torque_params))
+
+  def reset(self):
+    super().reset()
+    self.pid.reset()
+    self.nnff_assist.reset_history()
 
   def update(self, active, CS, VM, params, steer_limited_by_safety, desired_curvature, calibrated_pose, curvature_limited, lat_delay):
     nnff_active = active and self.nnff_assist._nnff_enabled
@@ -647,6 +680,7 @@ class LatControlTorque(LatControl):
                                             FRICTION_THRESHOLD, self.torque_params)
 
     if not active:
+      self.reset()
       output_torque = 0.0
       pid_log.active = False
     else:

@@ -48,10 +48,10 @@ def _model_v2():
 def _make_controller(model_file):
   Params().put_bool("NeuralNetworkFeedForward", True)
   path = os.path.join(_MODEL_DIR, model_file)
-  cp = SimpleNamespace(steerActuatorDelay=0.15)
+  cp = SimpleNamespace(steerActuatorDelay=0.15, brand="toyota", flags=0)
   cp_iq = SimpleNamespace(iqLateralNet=SimpleNamespace(
     model=SimpleNamespace(path=path, name=os.path.splitext(model_file)[0])))
-  lac = SimpleNamespace(steer_max=1.0, torque_params=SimpleNamespace(
+  lac = SimpleNamespace(dt=0.01, steer_max=1.0, torque_params=SimpleNamespace(
     latAccelFactor=2.5, latAccelOffset=0.0, friction=0.1, steeringAngleDeadzoneDeg=0.0))
   return NeuralNetworkFeedForward(lac, cp, cp_iq, FakeCI())
 
