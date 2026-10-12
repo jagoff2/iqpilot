@@ -1,0 +1,3 @@
+# Unified diffs require space-only context lines and stable LF bytes.
+*.patch text eol=lf -whitespace
+*.json text eol=lf

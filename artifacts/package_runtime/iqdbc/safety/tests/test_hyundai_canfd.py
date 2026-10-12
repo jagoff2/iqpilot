@@ -44,12 +44,12 @@ def test_canfd_steering_limits(safety, param, addr, length):
   assert not safety.safety_tx_hook(canfd_steer(addr, length, 1))
 
   safety.set_controls_allowed(True)
-  assert safety.safety_tx_hook(canfd_steer(addr, length, 2))
-  safety.set_desired_torque_last(270)
-  safety.set_rt_torque_last(270)
-  assert safety.safety_tx_hook(canfd_steer(addr, length, 270))
-  assert not safety.safety_tx_hook(canfd_steer(addr, length, 271))
-  assert not safety.safety_tx_hook(canfd_steer(addr, length, -271))
+  assert safety.safety_tx_hook(canfd_steer(addr, length, 3))
+  for sign in (-1, 1):
+    safety.set_desired_torque_last(sign * 400)
+    safety.set_rt_torque_last(sign * 400)
+    assert safety.safety_tx_hook(canfd_steer(addr, length, sign * 400))
+    assert not safety.safety_tx_hook(canfd_steer(addr, length, sign * 401))
 
 
 def test_canfd_tx_whitelist_and_buttons(safety):

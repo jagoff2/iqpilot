@@ -2,6 +2,7 @@
 Copyright © IQ.Lvbs, apart of Project Teal Lvbs, All Rights Reserved, licensed under https://konn3kt.com/tos
 """
 import unittest
+from dataclasses import replace
 import numpy as np
 
 from iqdbc.car.lateral import get_max_angle_delta_vm, get_max_angle_vm
@@ -17,6 +18,11 @@ MSG_DAS_steeringControl = 0x488
 MSG_APS_eacMonitor = 0x27d
 MSG_DAS_Control_HW1 = 0x2b9
 MSG_DAS_Control_PT = 0x2bf
+
+
+class SafetyLimits(CarControllerParams):
+  # Firmware has the ported jerk envelope; the controller retains its existing tuning.
+  ANGLE_LIMITS = replace(CarControllerParams.ANGLE_LIMITS, MAX_LATERAL_JERK=5.0 + 9.81 * 0.06)
 
 
 def round_angle(apply_angle, can_offset=0):
@@ -153,13 +159,13 @@ class TeslaLegacyAngleBase(common.AngleSteeringSafetyTest):
 
         angle_unit_offset = 1 if sign == -1 else 0
 
-        max_angle_delta = round_angle(get_max_angle_delta_vm(speed, self.VM, CarControllerParams),
+        max_angle_delta = round_angle(get_max_angle_delta_vm(speed, self.VM, SafetyLimits),
                                       angle_unit_offset) * sign
         self.assertTrue(self._tx(self._angle_cmd_msg(max_angle_delta, True)))
         self.assertTrue(self._tx(self._angle_cmd_msg(max_angle_delta, True)))
         self.assertTrue(self._tx(self._angle_cmd_msg(0, True)))
 
-        max_angle_delta = round_angle(get_max_angle_delta_vm(speed, self.VM, CarControllerParams),
+        max_angle_delta = round_angle(get_max_angle_delta_vm(speed, self.VM, SafetyLimits),
                                       angle_unit_offset + 1) * sign
         self.assertFalse(self._tx(self._angle_cmd_msg(max_angle_delta, True)))
 

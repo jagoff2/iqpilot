@@ -1,0 +1,150 @@
+{
+  "base_release_commit": "1b891adc2a8fd27a5365e229d74d08ceea00b2f0",
+  "matching_source_commit": "ddaf4bd8f8b8924c4d8d1131a6e63e8e936eca0a",
+  "matching_source_build_identifier": "a4af03e",
+  "target_hardware": "comma C3X / tres, STM32H725",
+  "firmware": {
+    "repository_path": "artifacts/package_runtime/panda/board/obj/panda_h7.bin.signed",
+    "build_output_path": "board/obj/panda_h7.bin.signed",
+    "sha256": "9ed595d48b6c7b74cac0f67022df99b7af9470620de8a526b4a5e8564923f3fa",
+    "size_bytes": 105096,
+    "previous_custom_firmware_sha256": "5df4ca0e2ae1248789c434286c7031e53d40288f317579500e888466ded3234f",
+    "build_version": "DEV-unknown-DEBUG",
+    "signing_key": "matching source panda/certs/debug"
+  },
+  "build": {
+    "toolchain": "arm-none-eabi-gcc 13.2.1 20231009",
+    "python": "/usr/local/venv/bin/python3",
+    "command": "/usr/local/venv/bin/python3 -m SCons --minimal board/obj/panda_h7.bin.signed",
+    "working_directory": "artifacts/package_sources/panda",
+    "pythonpath": "artifacts/package_sources/iqdbc",
+    "environment": {
+      "RELEASE": null,
+      "DEBUG": null,
+      "CERT": null
+    }
+  },
+  "retained_actuator_profile": {
+    "controller_classic": {
+      "down": 8,
+      "driver_allowance": 70,
+      "steering_threshold": 200,
+      "up": 5,
+      "max": 400
+    },
+    "firmware_classic": {
+      "up": 7,
+      "rt_delta": 400,
+      "min_valid_request_frames": 85,
+      "driver_allowance": 150,
+      "max": 404,
+      "down": 8
+    },
+    "controller_canfd": {
+      "down": 3,
+      "driver_allowance": 350,
+      "steering_threshold": 300,
+      "up": 3,
+      "max": 400
+    },
+    "firmware_canfd": {
+      "up": 3,
+      "rt_delta": 112,
+      "min_valid_request_frames": 89,
+      "driver_allowance": 350,
+      "max": 400,
+      "down": 3
+    },
+    "lateral_acceleration": 5,
+    "curvature_jerk": 10,
+    "firmware_vm_jerk_base": 5
+  },
+  "receive_correction": {
+    "CLU11": {
+      "address": "0x4F1",
+      "bus": 0,
+      "length": 4,
+      "frequency_hz": 50,
+      "max_counter": 15,
+      "ignore_checksum": true
+    },
+    "MDPS12": {
+      "address": "0x251",
+      "bus": 0,
+      "length": 8,
+      "frequency_hz": 100,
+      "ignore_checksum": true,
+      "ignore_counter": true
+    },
+    "configurations": [
+      "hyundai stock",
+      "hyundai longitudinal",
+      "hyundai camera SCC",
+      "hyundaiLegacy stock",
+      "hyundaiLegacy longitudinal",
+      "hyundaiLegacy camera SCC"
+    ],
+    "initialization_resets": [
+      "cruise_main_prev",
+      "hyundai_cruise_buttons_alt"
+    ],
+    "actuator_limits_changed_by_receive_fix": false
+  },
+  "validation": {
+    "safety_library_sha256": "967c6dcc3d57b05834d24d5dfa76fe84f77fc1c541349bfa0f48900ba0e1ab15",
+    "tests_passed": 346,
+    "new_receive_input_cases_passed": 168,
+    "existing_hyundai_controller_boundary_cases_passed": 178,
+    "cumulative_patch_files_byte_verified": 10,
+    "narrow_patch_files_byte_verified": 3,
+    "route_replay": {
+      "routes": 4,
+      "engagement_windows": 7,
+      "received_can_frames": 1118610,
+      "invalid_received_can_frames": 0,
+      "nonzero_steering_commands": 8195,
+      "accepted_nonzero_commands": 8170,
+      "rejected_while_lateral_authorized": 0,
+      "blocked_after_cruise_main_off": 25,
+      "late_receive_timeout_checks": 3,
+      "late_timeout_comparison": "Matches the original final route CAN-fault interval, approximately 107.5-110.917 seconds, with AOL already off"
+    },
+    "deployment": {
+      "running_firmware_signature_matches": true,
+      "running_signature_prefix": "2bdea3c62c409bd8",
+      "packaged_firmware_sha256_verified": true,
+      "ui_running": true,
+      "pandad_running": true,
+      "process_exit_codes": {
+        "ui": 0,
+        "pandad": 0
+      },
+      "panda_type": "tres",
+      "panda_faults": [],
+      "heartbeat_lost": false,
+      "offroad": true,
+      "ignition": false,
+      "preferences_preserved": {
+        "NeuralNetworkFeedForward": false,
+        "IQSteeringTurnGuards": false
+      }
+    },
+    "post_fix_onroad_test_performed": false
+  },
+  "patch_sha256": {
+    "firmware-source.patch": "9605ef2c5e1b390592cf69d5dddc05339925803b276229f6bf3a8cca59793761",
+    "hyundai-rx-fix.patch": "3ffd76b20427f908304b61269de24e4af99a0491cf379398dbeb141d25435066"
+  },
+  "patched_source_sha256": {
+    "iqdbc/safety/lateral.h": "8db39a0edd59603ec0d58ce42780c02afb52debe875c41e4d6e6fbee60df1d00",
+    "iqdbc/safety/modes/hyundai.h": "7c26a7a55a9fed943c637bfdacad9bb20670b3fc4f569babb707cb53d98abbc7",
+    "iqdbc/safety/modes/hyundai_canfd.h": "bf4f211a2d06c5fdaec3956047a509ca5aeb8fa303054bbdc14d5129a92ec466",
+    "iqdbc/safety/tests/test_hyundai.py": "3bb4a59ec391a27fbe5f33578c004441f99a14020a4ad3a6707ef303fddb886e",
+    "iqdbc/safety/tests/test_hyundai_canfd.py": "cf3a6e00e658afeff32450a1f2e68965c06f92595ccd10a6e6fad17c146a86bc",
+    "iqdbc/safety/tests/test_hyundai_limit_boundaries.py": "a0e3803d5ed037ec6d534bc79a760ab61b2386815b69a36855e5989cdf6454f3",
+    "iqdbc/safety/tests/test_tesla.py": "c8656031161f638048b92748eb2614097ddd7d6643778394b868239fd22cf70b",
+    "iqdbc/safety/tests/test_tesla_legacy.py": "2b37517d752c1c110c97c87112c1ecfafeb83b22ad9628ef077d53801830777c",
+    "iqdbc/safety/modes/hyundai_common.h": "d27e16f004255cee62363795cb8e5449c56f2c999a93fda01ad01b942a453705",
+    "iqdbc/safety/tests/test_hyundai_rx_inputs.py": "4320603dc9634edc08634cb86fd435a7a7b53f76064be25cdcb1ad5773545bce"
+  }
+}

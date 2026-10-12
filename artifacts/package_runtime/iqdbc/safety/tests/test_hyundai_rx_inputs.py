@@ -1,0 +1,251 @@
+"""Classic Hyundai steering permissions must be driven by validated CAN input."""
+
+import pytest
+
+from iqdbc.car.hyundai.values import HyundaiSafetyFlags
+from iqdbc.car.structs import CarParams
+from iqdbc.safety.tests.hyundai_common import classic_steer, packet
+from iqdbc.safety.tests.libsafety import libsafety_py
+
+
+class HyundaiRxInputs:
+  def __init__(self, mode, param):
+    self.safety = libsafety_py.libsafety
+    self.mode = mode
+    self.param = param
+    assert self.safety.set_safety_hooks(mode, param) == 0
+    self.safety.init_tests()
+    self.safety.set_aol_params(True, False, False)
+    self.clu_counter = 0
+
+  def clu(self, main=False, *, button=0, bus=0, length=4, counter=None):
+    if counter is None:
+      self.clu_counter = (self.clu_counter + 1) % 16
+      counter = self.clu_counter
+    return packet(0x4F1, bus, length, {0: int(main) << 3 | button, 3: counter << 4})
+
+  @staticmethod
+  def mdps(torque=0, *, bus=0, length=8):
+    value = torque + 1024
+    return packet(0x251, bus, length, {0: value & 0xFF, 1: (value >> 8) & 7})
+
+  @staticmethod
+  def brake(pressed=False, *, counter=1):
+    data = {1: (counter % 8) << 5, 5: int(pressed) << 6}
+    data[6] = -sum((value & 15) + (value >> 4) for value in data.values()) % 16
+    return packet(0x394, 0, 8, data)
+
+  @staticmethod
+  def wheels(moving=False, *, counter=1):
+    speed = 100 if moving else 0
+    checksum = ((speed.bit_count() * 2) ^ 9) & 15
+    return packet(0x386, 0, 8, {
+      0: speed, 1: (counter & 3) << 6, 3: ((counter >> 2) & 3) << 6,
+      5: (checksum & 3) << 6, 6: speed, 7: (checksum >> 2) << 6,
+    })
+
+  def scc(self, *, counter=1):
+    bus = 2 if self.param & HyundaiSafetyFlags.CAMERA_SCC else 0
+    return packet(0x421, bus, 8, {7: (counter % 16) | ((-counter % 16) << 4)})
+
+  def arm_aol(self):
+    # Release first: cruise-main is a momentary button, not the latched main state.
+    assert self.safety.safety_rx_hook(self.clu(False))
+    assert not self.safety.get_controls_allowed()
+    assert not self.safety.get_controls_allowed_lat()
+    assert self.safety.safety_rx_hook(self.clu(True))
+    assert self.safety.safety_rx_hook(self.clu(False))
+    assert self.safety.get_acc_main_on()
+    assert self.safety.get_controls_allowed_lat()
+    assert not self.safety.get_controls_allowed()
+
+  def refresh_all(self, *, counter, omit=None):
+    messages = [packet(0x371, 0, 8), self.wheels(counter=counter), self.brake(counter=counter)]
+    if not self.param & HyundaiSafetyFlags.LONG:
+      messages.append(self.scc(counter=counter))
+    if omit != 0x251:
+      messages.append(self.mdps())
+    if omit != 0x4F1:
+      messages.append(self.clu(False))
+    for message in messages:
+      assert self.safety.safety_rx_hook(message)
+
+
+@pytest.fixture(params=[
+  (mode, param)
+  for mode in (CarParams.SafetyModel.hyundai, CarParams.SafetyModel.hyundaiLegacy)
+  for param in (HyundaiSafetyFlags.EV_GAS, HyundaiSafetyFlags.EV_GAS | HyundaiSafetyFlags.LONG,
+                HyundaiSafetyFlags.EV_GAS | HyundaiSafetyFlags.CAMERA_SCC)
+])
+def inputs(request):
+  inputs = HyundaiRxInputs(*request.param)
+  try:
+    yield inputs
+  finally:
+    # libsafety is shared with tests whose setup does not configure AOL.
+    inputs.safety.set_aol_params(False, False, False)
+    inputs.safety.set_heartbeat_engaged_aol(False)
+
+
+def test_cruise_main_can_arms_and_disarms_aol(inputs):
+  safety = inputs.safety
+  assert not safety.safety_tx_hook(classic_steer(1))
+  inputs.arm_aol()
+  assert safety.safety_tx_hook(classic_steer(1))
+
+  # A second press toggles main off; release alone must not toggle it.
+  assert safety.safety_rx_hook(inputs.clu(True))
+  assert not safety.get_acc_main_on()
+  assert not safety.get_controls_allowed_lat()
+  assert not safety.safety_tx_hook(classic_steer(1))
+  assert safety.safety_tx_hook(classic_steer(0, False))
+
+
+def test_held_cruise_main_button_does_not_toggle_repeatedly(inputs):
+  safety = inputs.safety
+  assert safety.safety_rx_hook(inputs.clu(False))
+  assert safety.safety_rx_hook(inputs.clu(True))
+  assert safety.get_acc_main_on()
+  assert safety.get_controls_allowed_lat()
+  assert safety.safety_rx_hook(inputs.clu(True))
+  assert safety.get_acc_main_on()
+  assert safety.get_controls_allowed_lat()
+  assert safety.safety_rx_hook(inputs.clu(False))
+  assert safety.get_acc_main_on()
+  assert safety.get_controls_allowed_lat()
+  assert safety.safety_tx_hook(classic_steer(1))
+
+
+def test_cruise_main_does_not_authorize_steering_with_aol_disabled(inputs):
+  safety = inputs.safety
+  safety.set_aol_params(False, False, False)
+  assert safety.safety_rx_hook(inputs.clu(False))
+  assert safety.safety_rx_hook(inputs.clu(True))
+  assert safety.get_acc_main_on()
+  assert not safety.get_controls_allowed()
+  assert not safety.get_controls_allowed_lat()
+  assert not safety.safety_tx_hook(classic_steer(1))
+
+
+def test_safety_reinitialization_clears_cruise_main_button_edge(inputs):
+  safety = inputs.safety
+  assert safety.safety_rx_hook(inputs.clu(False))
+  assert safety.safety_rx_hook(inputs.clu(True))
+  assert safety.get_controls_allowed_lat()
+  # Reinitializing while the button was pressed must not retain the old edge.
+  restarted = HyundaiRxInputs(inputs.mode, inputs.param)
+  assert not safety.get_controls_allowed_lat()
+  assert safety.safety_rx_hook(restarted.clu(True))
+  assert safety.get_acc_main_on()
+  assert safety.get_controls_allowed_lat()
+  assert safety.safety_tx_hook(classic_steer(1))
+
+
+@pytest.mark.parametrize("bus,length", ((1, 4), (2, 4), (0, 8), (0, 5)))
+def test_wrong_bus_or_length_cruise_main_cannot_arm(inputs, bus, length):
+  safety = inputs.safety
+  assert safety.safety_rx_hook(inputs.clu(False))
+  safety.safety_rx_hook(inputs.clu(True, bus=bus, length=length))
+  assert not safety.get_acc_main_on()
+  assert not safety.get_controls_allowed_lat()
+  assert not safety.safety_tx_hook(classic_steer(1))
+
+
+def test_frozen_cruise_counter_cannot_arm_aol(inputs):
+  safety = inputs.safety
+  assert safety.safety_rx_hook(inputs.clu(False, counter=1))
+  # Five repeated counters invalidate CLU11. A main-button edge in another
+  # repeated packet must not reach the vehicle hook or change permission.
+  for _ in range(5):
+    valid = safety.safety_rx_hook(inputs.clu(False, counter=1))
+  assert not valid
+  assert not safety.safety_rx_hook(inputs.clu(True, counter=1))
+  assert not safety.get_acc_main_on()
+  assert not safety.get_controls_allowed_lat()
+  assert not safety.safety_tx_hook(classic_steer(1))
+
+
+@pytest.mark.parametrize("torque", (-1024, -400, -1, 0, 1, 400, 1023))
+def test_mdps_signed_driver_torque_reaches_sample_window(inputs, torque):
+  safety = inputs.safety
+  for _ in range(6):
+    assert safety.safety_rx_hook(inputs.mdps(torque))
+  assert safety.get_torque_driver_min() == torque
+  assert safety.get_torque_driver_max() == torque
+
+
+@pytest.mark.parametrize("bus,length", ((1, 8), (2, 8), (0, 4), (0, 7)))
+def test_wrong_bus_or_length_mdps_cannot_update_driver_sample(inputs, bus, length):
+  safety = inputs.safety
+  for _ in range(6):
+    safety.safety_rx_hook(inputs.mdps(-400, bus=bus, length=length))
+  assert safety.get_torque_driver_min() == 0
+  assert safety.get_torque_driver_max() == 0
+
+
+@pytest.mark.parametrize("sign", (-1, 1))
+def test_received_driver_override_constrains_opposing_steering(inputs, sign):
+  safety = inputs.safety
+  inputs.arm_aol()
+  for _ in range(6):
+    assert safety.safety_rx_hook(inputs.mdps(sign * 400))
+  assert safety.safety_tx_hook(classic_steer(sign * 7))
+  safety.set_desired_torque_last(0)
+  safety.set_rt_torque_last(0)
+  assert not safety.safety_tx_hook(classic_steer(-sign))
+
+
+@pytest.mark.parametrize("sign", (-1, 1))
+def test_can_armed_steering_preserves_custom_torque_and_rate_limits(inputs, sign):
+  safety = inputs.safety
+  inputs.arm_aol()
+  assert safety.safety_tx_hook(classic_steer(sign * 7))
+  assert not safety.safety_tx_hook(classic_steer(sign * 15))  # Increase exceeds 7.
+  for _ in range(6):
+    assert safety.safety_rx_hook(inputs.mdps(-sign * 400))
+  safety.set_desired_torque_last(sign * 20)
+  safety.set_rt_torque_last(sign * 20)
+  assert safety.safety_tx_hook(classic_steer(sign * 12))
+  safety.set_desired_torque_last(sign * 20)
+  assert not safety.safety_tx_hook(classic_steer(sign * 13))  # Driver override requires at least 8 decrease.
+  for _ in range(6):
+    assert safety.safety_rx_hook(inputs.mdps())
+  safety.set_desired_torque_last(sign * 404)
+  safety.set_rt_torque_last(sign * 404)
+  assert safety.safety_tx_hook(classic_steer(sign * 404))
+  assert not safety.safety_tx_hook(classic_steer(sign * 405))
+
+
+@pytest.mark.parametrize("stale_address", (0x4F1, 0x251))
+def test_stale_steering_input_revokes_can_armed_aol(inputs, stale_address):
+  safety = inputs.safety
+  inputs.refresh_all(counter=1)
+  inputs.arm_aol()
+  safety.safety_tick_current_safety_config()
+  assert safety.safety_config_valid()
+  assert safety.safety_tx_hook(classic_steer(1))
+  safety.set_timer(1_100_000)
+  inputs.refresh_all(counter=2, omit=stale_address)
+  safety.safety_tick_current_safety_config()
+  assert not safety.safety_config_valid()
+  assert not safety.get_controls_allowed_lat()
+  assert not safety.safety_tx_hook(classic_steer(1))
+  # Unrelated traffic cannot re-arm a latched request after its input timed out.
+  assert safety.safety_rx_hook(packet(0x371, 0, 8))
+  assert not safety.get_controls_allowed_lat()
+
+
+@pytest.mark.parametrize("disengage,pause,resumes", ((True, False, False), (False, True, True)))
+def test_can_armed_aol_preserves_brake_configuration(inputs, disengage, pause, resumes):
+  safety = inputs.safety
+  safety.set_aol_params(True, disengage, pause)
+  assert safety.safety_rx_hook(inputs.brake(False, counter=1))
+  inputs.arm_aol()
+  assert safety.safety_tx_hook(classic_steer(1))
+  assert safety.safety_rx_hook(inputs.brake(True, counter=2))
+  assert safety.get_brake_pressed_prev()
+  assert not safety.get_controls_allowed_lat()
+  assert not safety.safety_tx_hook(classic_steer(1))
+  assert safety.safety_rx_hook(inputs.brake(False, counter=3))
+  assert safety.get_controls_allowed_lat() == resumes
+  assert bool(safety.safety_tx_hook(classic_steer(1))) == resumes

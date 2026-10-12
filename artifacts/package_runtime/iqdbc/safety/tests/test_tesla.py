@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import random
 import unittest
+from dataclasses import replace
 import numpy as np
 
 import pytest
@@ -23,6 +24,11 @@ MSG_DAS_steeringControl = 0x488
 MSG_APS_eacMonitor = 0x27d
 MSG_DAS_Control = 0x2b9
 MSG_DAS_bodyControls = 0x3E9
+
+
+class SafetyLimits(CarControllerParams):
+  # Firmware has the ported jerk envelope; the controller retains its existing tuning.
+  ANGLE_LIMITS = replace(CarControllerParams.ANGLE_LIMITS, MAX_LATERAL_JERK=5.0 + 9.81 * 0.06)
 
 
 def round_angle(apply_angle, can_offset=0):
@@ -393,7 +399,7 @@ class TestTeslaSafetyBase(common.CarSafetyTest, common.AngleSteeringSafetyTest, 
 
         # Stay within limits
         # Up
-        max_angle_delta = round_angle(get_max_angle_delta_vm(speed, self.VM, CarControllerParams), angle_unit_offset) * sign
+        max_angle_delta = round_angle(get_max_angle_delta_vm(speed, self.VM, SafetyLimits), angle_unit_offset) * sign
         self.assertTrue(self._tx(self._angle_cmd_msg(max_angle_delta, True)))
 
         # Don't change
@@ -404,7 +410,7 @@ class TestTeslaSafetyBase(common.CarSafetyTest, common.AngleSteeringSafetyTest, 
 
         # Inject too high rates
         # Up
-        max_angle_delta = round_angle(get_max_angle_delta_vm(speed, self.VM, CarControllerParams), angle_unit_offset + 1) * sign
+        max_angle_delta = round_angle(get_max_angle_delta_vm(speed, self.VM, SafetyLimits), angle_unit_offset + 1) * sign
         self.assertFalse(self._tx(self._angle_cmd_msg(max_angle_delta, True)))
 
         # Don't change

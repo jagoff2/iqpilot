@@ -1,0 +1,690 @@
+--- a/iqdbc/safety/lateral.h
++++ b/iqdbc/safety/lateral.h
+@@ -1,8 +1,8 @@
+ #include "iqdbc/safety/aol/aol.h"
+ #include "iqdbc/safety/declarations.h"
+ 
+-// ISO 11270
+-static const float ISO_LATERAL_ACCEL = 3.0;  // m/s^2
++// Modified Sunnypilot actuator profile.
++static const float ISO_LATERAL_ACCEL = 5.0;  // m/s^2
+ 
+ static const float EARTH_G = 9.81;
+ static const float AVERAGE_ROAD_ROLL = 0.06;  // ~3.4 degrees, 6% superelevation
+@@ -302,8 +302,8 @@
+ 
+   // Highway curves are rolled in the direction of the turn, add tolerance to compensate
+   static const float MAX_LATERAL_ACCEL = ISO_LATERAL_ACCEL + (EARTH_G * AVERAGE_ROAD_ROLL);  // ~5.6 m/s^2
+-  // Lower than ISO 11270 lateral jerk limit, which is 5.0 m/s^3
+-  static const float MAX_LATERAL_JERK = 3.0 + (EARTH_G * AVERAGE_ROAD_ROLL);  // ~3.6 m/s^3
++  // Modified Sunnypilot jerk limit with the same road-roll tolerance.
++  static const float MAX_LATERAL_JERK = 5.0 + (EARTH_G * AVERAGE_ROAD_ROLL);  // ~5.6 m/s^3
+ 
+   const float fudged_speed = SAFETY_MAX((vehicle_speed.min / VEHICLE_SPEED_FACTOR) - 1.0, 1.0);
+   const float curvature_factor = get_curvature_factor(fudged_speed, params);
+@@ -358,7 +358,7 @@
+   return violation;
+ }
+ 
+-static const float ISO_LATERAL_JERK = 5.0;  // m/s^3
++static const float ISO_LATERAL_JERK = 10.0;  // m/s^3; matches iqdbc/car/lateral.py
+ 
+ bool steer_power_cmd_checks(int desired_steer_power, bool steer_control_enabled, const CurvatureSteeringLimits limits) {
+   bool violation = false;
+--- a/iqdbc/safety/modes/hyundai.h
++++ b/iqdbc/safety/modes/hyundai.h
+@@ -9,13 +9,13 @@
+   .max_torque = (steer), \
+   .max_rate_up = (rate_up), \
+   .max_rate_down = (rate_down), \
+-  .max_rt_delta = 112, \
+-  .driver_torque_allowance = 50, \
++  .max_rt_delta = 400, \
++  .driver_torque_allowance = 150, \
+   .driver_torque_multiplier = 2, \
+   .type = TorqueDriverLimited, \
+    /* the EPS faults when the steering angle is above a certain threshold for too long. to prevent this, */ \
+    /* we allow setting CF_Lkas_ActToi bit to 0 while maintaining the requested torque value for two consecutive frames */ \
+-  .min_valid_request_frames = 89, \
++  .min_valid_request_frames = 85, \
+   .max_invalid_request_frames = 2, \
+   .min_valid_request_rt_interval = 810000,  /* 810ms; a ~10% buffer on cutting every 90 frames */ \
+   .has_steer_req_tolerance = true, \
+@@ -45,6 +45,8 @@
+ };
+ 
+ #define HYUNDAI_COMMON_RX_CHECKS(legacy)                                                                                                                  \
++  {.msg = {{0x251, 0, 8, .ignore_checksum = true, .ignore_counter = true, .frequency = 100U, .ignore_quality_flag = true}, { 0 }, { 0 }}}, \
++  {.msg = {{0x4F1, 0, 4, .ignore_checksum = true, .max_counter = 15U, .frequency = 50U, .ignore_quality_flag = true}, { 0 }, { 0 }}}, \
+   {.msg = {{0x260, 0, 8, .max_counter = 3U, .frequency = 100U, .ignore_quality_flag = true},                                                                                           \
+            {0x371, 0, 8, .ignore_checksum = true, .ignore_counter = true, .frequency = 100U, .ignore_quality_flag = true},                                                             \
+            {0x91,  0, 8, .ignore_checksum = true, .ignore_counter = true, .frequency = 100U, .ignore_quality_flag = true}}},                                                           \
+@@ -206,9 +208,9 @@
+ uint32_t last_ts_lfahda_mfc_from_op = 0;
+ 
+ static bool hyundai_tx_hook(const CANPacket_t *to_send) {
+-  const TorqueSteeringLimits HYUNDAI_STEERING_LIMITS = HYUNDAI_LIMITS(512, 10, 10);
+-  const TorqueSteeringLimits HYUNDAI_STEERING_LIMITS_ALT = HYUNDAI_LIMITS(512, 10, 10);
+-  const TorqueSteeringLimits HYUNDAI_STEERING_LIMITS_ALT_2 = HYUNDAI_LIMITS(170, 2, 3);
++  const TorqueSteeringLimits HYUNDAI_STEERING_LIMITS = HYUNDAI_LIMITS(404, 7, 8);
++  const TorqueSteeringLimits HYUNDAI_STEERING_LIMITS_ALT = HYUNDAI_LIMITS(404, 7, 8);
++  const TorqueSteeringLimits HYUNDAI_STEERING_LIMITS_ALT_2 = HYUNDAI_LIMITS(404, 7, 8);
+ 
+   bool tx = true;
+   int addr = GET_ADDR(to_send);
+@@ -403,15 +405,9 @@
+     else if (hyundai_longitudinal) {
+         static RxCheck hyundai_long_rx_checks[] = {
+           HYUNDAI_COMMON_RX_CHECKS(false)
+-          // Use CLU11 (buttons) to manage controls allowed instead of SCC cruise state
+-          {.msg = {{0x4F1, 0, 4, .ignore_checksum = true, .max_counter = 15U, .frequency = 50U, .ignore_quality_flag = true}, { 0 }, { 0 }}
+-},
+         };
+         static RxCheck hyundai_long_rx_checks_legacy[] = {
+           HYUNDAI_COMMON_RX_CHECKS(true)
+-          // Use CLU11 (buttons) to manage controls allowed instead of SCC cruise state
+-          {.msg = {{0x4F1, 0, 4, .ignore_checksum = true, .max_counter = 15U, .frequency = 50U, .ignore_quality_flag = true}, { 0 }, { 0 }}
+-},
+         };
+ 
+         if(legacy_car) ret = BUILD_SAFETY_CFG(hyundai_long_rx_checks_legacy, HYUNDAI_LONG_TX_MSGS);
+@@ -437,12 +433,14 @@
+ static safety_config hyundai_init(uint16_t param) {
+   hyundai_common_init(param);
+   hyundai_legacy = false;
++  hyundai_cruise_buttons_alt = false;
+   return hyundai_init_carrot(hyundai_legacy);
+ }
+ 
+ static safety_config hyundai_legacy_init(uint16_t param) {
+   hyundai_common_init(param);
+   hyundai_legacy = true;
++  hyundai_cruise_buttons_alt = false;
+   return hyundai_init_carrot(hyundai_legacy);
+ }
+ 
+--- a/iqdbc/safety/modes/hyundai_canfd.h
++++ b/iqdbc/safety/modes/hyundai_canfd.h
+@@ -7,12 +7,12 @@
+ #pragma GCC diagnostic ignored "-Wunused-function"
+ 
+ const TorqueSteeringLimits HYUNDAI_CANFD_STEERING_LIMITS = {
+-  .max_torque = 270,
++  .max_torque = 400,
+   .max_rt_delta = 112,
+ 
+-  .max_rate_up = 2,
++  .max_rate_up = 3,
+   .max_rate_down = 3,
+-  .driver_torque_allowance = 250,
++  .driver_torque_allowance = 350,
+   .driver_torque_multiplier = 2,
+   .type = TorqueDriverLimited,
+ 
+--- a/iqdbc/safety/tests/test_hyundai.py
++++ b/iqdbc/safety/tests/test_hyundai.py
+@@ -29,8 +29,9 @@
+ 
+ 
+ @pytest.mark.parametrize("mode", (CarParams.SafetyModel.hyundai, CarParams.SafetyModel.hyundaiLegacy))
+-def test_classic_tx_whitelist_and_steering_limits(safety, mode):
+-  safety.set_safety_hooks(mode, 0)
++@pytest.mark.parametrize("param", (0, HyundaiSafetyFlags.ALT_LIMITS, HyundaiSafetyFlags.ALT_LIMITS_2))
++def test_classic_tx_whitelist_and_steering_limits(safety, mode, param):
++  safety.set_safety_hooks(mode, param)
+   safety.init_tests()
+ 
+   assert not safety.safety_tx_hook(packet(0x123, 0, 8))
+@@ -41,22 +42,12 @@
+   assert not safety.safety_tx_hook(classic_steer(1))
+ 
+   safety.set_controls_allowed(True)
+-  assert safety.safety_tx_hook(classic_steer(10))
+-  safety.set_desired_torque_last(512)
+-  safety.set_rt_torque_last(512)
+-  assert safety.safety_tx_hook(classic_steer(512))
+-  assert not safety.safety_tx_hook(classic_steer(513))
+-  assert not safety.safety_tx_hook(classic_steer(-513))
+-
+-
+-def test_classic_alt_limits_2(safety):
+-  safety.set_safety_hooks(CarParams.SafetyModel.hyundai, HyundaiSafetyFlags.ALT_LIMITS_2)
+-  safety.init_tests()
+-  safety.set_controls_allowed(True)
+-  safety.set_desired_torque_last(170)
+-  safety.set_rt_torque_last(170)
+-  assert safety.safety_tx_hook(classic_steer(170))
+-  assert not safety.safety_tx_hook(classic_steer(171))
++  assert safety.safety_tx_hook(classic_steer(7))
++  for sign in (-1, 1):
++    safety.set_desired_torque_last(sign * 404)
++    safety.set_rt_torque_last(sign * 404)
++    assert safety.safety_tx_hook(classic_steer(sign * 404))
++    assert not safety.safety_tx_hook(classic_steer(sign * 405))
+ 
+ 
+ def test_classic_longitudinal_accel_and_aeb_guards(safety):
+--- a/iqdbc/safety/tests/test_hyundai_canfd.py
++++ b/iqdbc/safety/tests/test_hyundai_canfd.py
+@@ -44,12 +44,12 @@
+   assert not safety.safety_tx_hook(canfd_steer(addr, length, 1))
+ 
+   safety.set_controls_allowed(True)
+-  assert safety.safety_tx_hook(canfd_steer(addr, length, 2))
+-  safety.set_desired_torque_last(270)
+-  safety.set_rt_torque_last(270)
+-  assert safety.safety_tx_hook(canfd_steer(addr, length, 270))
+-  assert not safety.safety_tx_hook(canfd_steer(addr, length, 271))
+-  assert not safety.safety_tx_hook(canfd_steer(addr, length, -271))
++  assert safety.safety_tx_hook(canfd_steer(addr, length, 3))
++  for sign in (-1, 1):
++    safety.set_desired_torque_last(sign * 400)
++    safety.set_rt_torque_last(sign * 400)
++    assert safety.safety_tx_hook(canfd_steer(addr, length, sign * 400))
++    assert not safety.safety_tx_hook(canfd_steer(addr, length, sign * 401))
+ 
+ 
+ def test_canfd_tx_whitelist_and_buttons(safety):
+--- /dev/null
++++ b/iqdbc/safety/tests/test_hyundai_limit_boundaries.py
+@@ -0,0 +1,158 @@
++from dataclasses import dataclass
++from functools import partial
++
++import pytest
++
++from iqdbc.car.hyundai.values import CAR, CarControllerParams, HyundaiFlags, HyundaiSafetyFlags
++from iqdbc.car.lateral import apply_driver_steer_torque_limits
++from iqdbc.car.structs import CarParams
++from iqdbc.safety.tests.hyundai_common import canfd_steer, classic_steer
++from iqdbc.safety.tests.libsafety import libsafety_py
++
++
++@dataclass(frozen=True)
++class Limits:
++  torque: int
++  rate_up: int
++  rate_down: int
++  rt_delta: int
++  driver_allowance: int
++  valid_request_frames: int
++
++
++CLASSIC = Limits(404, 7, 8, 400, 150, 85)
++CANFD = Limits(400, 3, 3, 112, 350, 89)
++PROFILES = [
++  pytest.param(mode, param, classic_steer, CLASSIC, id=f"{mode}-{param}")
++  for mode in (CarParams.SafetyModel.hyundai, CarParams.SafetyModel.hyundaiLegacy)
++  for param in (0, HyundaiSafetyFlags.ALT_LIMITS, HyundaiSafetyFlags.ALT_LIMITS_2)
++] + [
++  pytest.param(CarParams.SafetyModel.hyundaiCanfd, param, partial(canfd_steer, addr, length), CANFD,
++               id=f"canfd-{param}-{addr:x}")
++  for param, addr, length in (
++    (0, 0x12A, 16),
++    (HyundaiSafetyFlags.CANFD_LKA_STEERING, 0x50, 16),
++    (HyundaiSafetyFlags.CANFD_LKA_STEERING | HyundaiSafetyFlags.CANFD_LKA_STEERING_ALT, 0x110, 32),
++    (HyundaiSafetyFlags.CANFD_LKA_STEERING | HyundaiSafetyFlags.LONG, 0x12A, 16),
++  )
++]
++
++
++def reset_safety(mode, param):
++  safety = libsafety_py.libsafety
++  assert safety.set_safety_hooks(mode, param) == 0
++  safety.init_tests()
++  safety.set_aol_params(False, False, False)
++  safety.set_controls_allowed(True)
++  safety.set_torque_driver(0, 0)
++  return safety
++
++
++def controller_params(param, limits):
++  if limits is CANFD:
++    candidate, flags = CAR.KIA_EV6, HyundaiFlags.CANFD
++  elif param & HyundaiSafetyFlags.ALT_LIMITS_2:
++    candidate, flags = CAR.HYUNDAI_KONA_2022, HyundaiFlags.ALT_LIMITS_2
++  elif param & HyundaiSafetyFlags.ALT_LIMITS:
++    candidate, flags = CAR.HYUNDAI_KONA, HyundaiFlags.ALT_LIMITS
++  else:
++    candidate, flags = CAR.HYUNDAI_SONATA, 0
++  cp = CarParams.new_message(carFingerprint=candidate.value, flags=int(flags))
++  return CarControllerParams(cp)
++
++
++@pytest.mark.parametrize("mode,param,message,limits", PROFILES)
++@pytest.mark.parametrize("sign", (-1, 1))
++def test_torque_rate_boundaries(mode, param, message, limits, sign):
++  # Torque may always unwind faster; the per-frame maximum constrains windup.
++  for delta, allowed in ((limits.rate_up, True), (limits.rate_up + 1, False), (-100, True)):
++    safety = reset_safety(mode, param)
++    safety.set_desired_torque_last(sign * 100)
++    safety.set_rt_torque_last(sign * 100)
++    assert bool(safety.safety_tx_hook(message(sign * (100 + delta)))) is allowed
++
++
++@pytest.mark.parametrize("mode,param,message,limits", PROFILES)
++@pytest.mark.parametrize("sign", (-1, 1))
++def test_driver_override_requires_minimum_unwind(mode, param, message, limits, sign):
++  for reduction, allowed in ((limits.rate_down, True), (limits.rate_down - 1, False)):
++    safety = reset_safety(mode, param)
++    driver = -sign * (limits.driver_allowance + limits.torque)
++    safety.set_torque_driver(driver, driver)
++    safety.set_desired_torque_last(sign * limits.torque)
++    safety.set_rt_torque_last(sign * limits.torque)
++    assert bool(safety.safety_tx_hook(message(sign * (limits.torque - reduction)))) is allowed
++
++
++@pytest.mark.parametrize("mode,param,message,limits", PROFILES)
++@pytest.mark.parametrize("sign", (-1, 1))
++def test_realtime_torque_boundary(mode, param, message, limits, sign):
++  for delta, allowed in ((limits.rt_delta, True), (limits.rt_delta + 1, False)):
++    safety = reset_safety(mode, param)
++    desired = sign * delta
++    safety.set_desired_torque_last(desired)
++    safety.set_rt_torque_last(0)
++    assert bool(safety.safety_tx_hook(message(desired))) is allowed
++
++
++@pytest.mark.parametrize("mode,param,message,limits", PROFILES)
++@pytest.mark.parametrize("sign", (-1, 1))
++def test_opposing_driver_torque_boundary(mode, param, message, limits, sign):
++  for driver_extra, commanded_reduction, allowed in ((0, 0, True), (1, 2, True), (1, 1, False)):
++    safety = reset_safety(mode, param)
++    driver = -sign * (limits.driver_allowance + driver_extra)
++    safety.set_torque_driver(driver, driver)
++    safety.set_desired_torque_last(sign * limits.torque)
++    safety.set_rt_torque_last(sign * limits.torque)
++    command = sign * (limits.torque - commanded_reduction)
++    assert bool(safety.safety_tx_hook(message(command))) is allowed
++
++
++@pytest.mark.parametrize("mode,param,message,limits", PROFILES)
++def test_request_cut_boundaries(mode, param, message, limits):
++  for valid_frames in (limits.valid_request_frames - 1, limits.valid_request_frames):
++    safety = reset_safety(mode, param)
++    for frame in range(valid_frames):
++      safety.set_timer(1_000_000 + frame * 10_000)
++      assert safety.safety_tx_hook(message(1))
++    safety.set_timer(1_000_000 + valid_frames * 10_000)
++    allowed = valid_frames == limits.valid_request_frames
++    assert bool(safety.safety_tx_hook(message(1, False))) is allowed
++    if allowed:
++      safety.set_timer(1_010_000 + valid_frames * 10_000)
++      assert safety.safety_tx_hook(message(1, False))
++      safety.set_timer(1_020_000 + valid_frames * 10_000)
++      assert not safety.safety_tx_hook(message(1, False))
++
++
++@pytest.mark.parametrize("mode,param,message,limits", PROFILES)
++@pytest.mark.parametrize("sign", (-1, 1))
++def test_controller_rate_reaches_full_torque_without_rejection(mode, param, message, limits, sign):
++  safety = reset_safety(mode, param)
++  params = controller_params(param, limits)
++  torque = 0
++  for frame in range(150):
++    safety.set_timer(frame * 10_000)
++    torque = apply_driver_steer_torque_limits(sign * params.STEER_MAX, torque, 0, params)
++    assert safety.safety_tx_hook(message(torque))
++  assert torque == sign * 400
++
++
++@pytest.mark.parametrize("mode,param,message,limits", PROFILES)
++@pytest.mark.parametrize("sign", (-1, 1))
++def test_controller_driver_override_matches_safety(mode, param, message, limits, sign):
++  safety = reset_safety(mode, param)
++  params = controller_params(param, limits)
++  torque = sign * params.STEER_MAX
++  driver = -sign * (750 if limits is CANFD else 400)
++  safety.set_desired_torque_last(torque)
++  safety.set_rt_torque_last(torque)
++  safety.set_torque_driver(driver, driver)
++
++  # Feed every real controller output continuously through the firmware hook.
++  # With classic down-rate 7, the first command was 393 instead of the required 392.
++  for frame in range(150):
++    safety.set_timer(frame * 10_000)
++    torque = apply_driver_steer_torque_limits(sign * params.STEER_MAX, torque, driver, params)
++    assert safety.safety_tx_hook(message(torque)), f"driver override rejected torque={torque}, frame={frame}"
++  assert torque == 0
+--- a/iqdbc/safety/tests/test_tesla.py
++++ b/iqdbc/safety/tests/test_tesla.py
+@@ -1,6 +1,7 @@
+ #!/usr/bin/env python3
+ import random
+ import unittest
++from dataclasses import replace
+ import numpy as np
+ 
+ import pytest
+@@ -23,6 +24,11 @@
+ MSG_APS_eacMonitor = 0x27d
+ MSG_DAS_Control = 0x2b9
+ MSG_DAS_bodyControls = 0x3E9
++
++
++class SafetyLimits(CarControllerParams):
++  # Firmware has the ported jerk envelope; the controller retains its existing tuning.
++  ANGLE_LIMITS = replace(CarControllerParams.ANGLE_LIMITS, MAX_LATERAL_JERK=5.0 + 9.81 * 0.06)
+ 
+ 
+ def round_angle(apply_angle, can_offset=0):
+@@ -393,7 +399,7 @@
+ 
+         # Stay within limits
+         # Up
+-        max_angle_delta = round_angle(get_max_angle_delta_vm(speed, self.VM, CarControllerParams), angle_unit_offset) * sign
++        max_angle_delta = round_angle(get_max_angle_delta_vm(speed, self.VM, SafetyLimits), angle_unit_offset) * sign
+         self.assertTrue(self._tx(self._angle_cmd_msg(max_angle_delta, True)))
+ 
+         # Don't change
+@@ -404,7 +410,7 @@
+ 
+         # Inject too high rates
+         # Up
+-        max_angle_delta = round_angle(get_max_angle_delta_vm(speed, self.VM, CarControllerParams), angle_unit_offset + 1) * sign
++        max_angle_delta = round_angle(get_max_angle_delta_vm(speed, self.VM, SafetyLimits), angle_unit_offset + 1) * sign
+         self.assertFalse(self._tx(self._angle_cmd_msg(max_angle_delta, True)))
+ 
+         # Don't change
+--- a/iqdbc/safety/tests/test_tesla_legacy.py
++++ b/iqdbc/safety/tests/test_tesla_legacy.py
+@@ -2,6 +2,7 @@
+ Copyright © IQ.Lvbs, apart of Project Teal Lvbs, All Rights Reserved, licensed under https://konn3kt.com/tos
+ """
+ import unittest
++from dataclasses import replace
+ import numpy as np
+ 
+ from iqdbc.car.lateral import get_max_angle_delta_vm, get_max_angle_vm
+@@ -19,6 +20,11 @@
+ MSG_DAS_Control_PT = 0x2bf
+ 
+ 
++class SafetyLimits(CarControllerParams):
++  # Firmware has the ported jerk envelope; the controller retains its existing tuning.
++  ANGLE_LIMITS = replace(CarControllerParams.ANGLE_LIMITS, MAX_LATERAL_JERK=5.0 + 9.81 * 0.06)
++
++
+ def round_angle(apply_angle, can_offset=0):
+   apply_angle_can = (apply_angle + 1638.35) / 0.1 + can_offset
+   rnd_offset = 1e-5 if apply_angle >= 0 else -1e-5
+@@ -153,13 +159,13 @@
+ 
+         angle_unit_offset = 1 if sign == -1 else 0
+ 
+-        max_angle_delta = round_angle(get_max_angle_delta_vm(speed, self.VM, CarControllerParams),
++        max_angle_delta = round_angle(get_max_angle_delta_vm(speed, self.VM, SafetyLimits),
+                                       angle_unit_offset) * sign
+         self.assertTrue(self._tx(self._angle_cmd_msg(max_angle_delta, True)))
+         self.assertTrue(self._tx(self._angle_cmd_msg(max_angle_delta, True)))
+         self.assertTrue(self._tx(self._angle_cmd_msg(0, True)))
+ 
+-        max_angle_delta = round_angle(get_max_angle_delta_vm(speed, self.VM, CarControllerParams),
++        max_angle_delta = round_angle(get_max_angle_delta_vm(speed, self.VM, SafetyLimits),
+                                       angle_unit_offset + 1) * sign
+         self.assertFalse(self._tx(self._angle_cmd_msg(max_angle_delta, True)))
+ 
+--- a/iqdbc/safety/modes/hyundai_common.h
++++ b/iqdbc/safety/modes/hyundai_common.h
+@@ -71,6 +71,7 @@
+   hyundai_alt_limits_2 = GET_FLAG(param, HYUNDAI_PARAM_ALT_LIMITS_2);
+ 
+   hyundai_last_button_interaction = HYUNDAI_PREV_BUTTON_SAMPLES;
++  cruise_main_prev = 0;
+ 
+ #ifdef ALLOW_DEBUG
+   const int HYUNDAI_PARAM_LONGITUDINAL = 4;
+--- /dev/null
++++ b/iqdbc/safety/tests/test_hyundai_rx_inputs.py
+@@ -0,0 +1,251 @@
++"""Classic Hyundai steering permissions must be driven by validated CAN input."""
++
++import pytest
++
++from iqdbc.car.hyundai.values import HyundaiSafetyFlags
++from iqdbc.car.structs import CarParams
++from iqdbc.safety.tests.hyundai_common import classic_steer, packet
++from iqdbc.safety.tests.libsafety import libsafety_py
++
++
++class HyundaiRxInputs:
++  def __init__(self, mode, param):
++    self.safety = libsafety_py.libsafety
++    self.mode = mode
++    self.param = param
++    assert self.safety.set_safety_hooks(mode, param) == 0
++    self.safety.init_tests()
++    self.safety.set_aol_params(True, False, False)
++    self.clu_counter = 0
++
++  def clu(self, main=False, *, button=0, bus=0, length=4, counter=None):
++    if counter is None:
++      self.clu_counter = (self.clu_counter + 1) % 16
++      counter = self.clu_counter
++    return packet(0x4F1, bus, length, {0: int(main) << 3 | button, 3: counter << 4})
++
++  @staticmethod
++  def mdps(torque=0, *, bus=0, length=8):
++    value = torque + 1024
++    return packet(0x251, bus, length, {0: value & 0xFF, 1: (value >> 8) & 7})
++
++  @staticmethod
++  def brake(pressed=False, *, counter=1):
++    data = {1: (counter % 8) << 5, 5: int(pressed) << 6}
++    data[6] = -sum((value & 15) + (value >> 4) for value in data.values()) % 16
++    return packet(0x394, 0, 8, data)
++
++  @staticmethod
++  def wheels(moving=False, *, counter=1):
++    speed = 100 if moving else 0
++    checksum = ((speed.bit_count() * 2) ^ 9) & 15
++    return packet(0x386, 0, 8, {
++      0: speed, 1: (counter & 3) << 6, 3: ((counter >> 2) & 3) << 6,
++      5: (checksum & 3) << 6, 6: speed, 7: (checksum >> 2) << 6,
++    })
++
++  def scc(self, *, counter=1):
++    bus = 2 if self.param & HyundaiSafetyFlags.CAMERA_SCC else 0
++    return packet(0x421, bus, 8, {7: (counter % 16) | ((-counter % 16) << 4)})
++
++  def arm_aol(self):
++    # Release first: cruise-main is a momentary button, not the latched main state.
++    assert self.safety.safety_rx_hook(self.clu(False))
++    assert not self.safety.get_controls_allowed()
++    assert not self.safety.get_controls_allowed_lat()
++    assert self.safety.safety_rx_hook(self.clu(True))
++    assert self.safety.safety_rx_hook(self.clu(False))
++    assert self.safety.get_acc_main_on()
++    assert self.safety.get_controls_allowed_lat()
++    assert not self.safety.get_controls_allowed()
++
++  def refresh_all(self, *, counter, omit=None):
++    messages = [packet(0x371, 0, 8), self.wheels(counter=counter), self.brake(counter=counter)]
++    if not self.param & HyundaiSafetyFlags.LONG:
++      messages.append(self.scc(counter=counter))
++    if omit != 0x251:
++      messages.append(self.mdps())
++    if omit != 0x4F1:
++      messages.append(self.clu(False))
++    for message in messages:
++      assert self.safety.safety_rx_hook(message)
++
++
++@pytest.fixture(params=[
++  (mode, param)
++  for mode in (CarParams.SafetyModel.hyundai, CarParams.SafetyModel.hyundaiLegacy)
++  for param in (HyundaiSafetyFlags.EV_GAS, HyundaiSafetyFlags.EV_GAS | HyundaiSafetyFlags.LONG,
++                HyundaiSafetyFlags.EV_GAS | HyundaiSafetyFlags.CAMERA_SCC)
++])
++def inputs(request):
++  inputs = HyundaiRxInputs(*request.param)
++  try:
++    yield inputs
++  finally:
++    # libsafety is shared with tests whose setup does not configure AOL.
++    inputs.safety.set_aol_params(False, False, False)
++    inputs.safety.set_heartbeat_engaged_aol(False)
++
++
++def test_cruise_main_can_arms_and_disarms_aol(inputs):
++  safety = inputs.safety
++  assert not safety.safety_tx_hook(classic_steer(1))
++  inputs.arm_aol()
++  assert safety.safety_tx_hook(classic_steer(1))
++
++  # A second press toggles main off; release alone must not toggle it.
++  assert safety.safety_rx_hook(inputs.clu(True))
++  assert not safety.get_acc_main_on()
++  assert not safety.get_controls_allowed_lat()
++  assert not safety.safety_tx_hook(classic_steer(1))
++  assert safety.safety_tx_hook(classic_steer(0, False))
++
++
++def test_held_cruise_main_button_does_not_toggle_repeatedly(inputs):
++  safety = inputs.safety
++  assert safety.safety_rx_hook(inputs.clu(False))
++  assert safety.safety_rx_hook(inputs.clu(True))
++  assert safety.get_acc_main_on()
++  assert safety.get_controls_allowed_lat()
++  assert safety.safety_rx_hook(inputs.clu(True))
++  assert safety.get_acc_main_on()
++  assert safety.get_controls_allowed_lat()
++  assert safety.safety_rx_hook(inputs.clu(False))
++  assert safety.get_acc_main_on()
++  assert safety.get_controls_allowed_lat()
++  assert safety.safety_tx_hook(classic_steer(1))
++
++
++def test_cruise_main_does_not_authorize_steering_with_aol_disabled(inputs):
++  safety = inputs.safety
++  safety.set_aol_params(False, False, False)
++  assert safety.safety_rx_hook(inputs.clu(False))
++  assert safety.safety_rx_hook(inputs.clu(True))
++  assert safety.get_acc_main_on()
++  assert not safety.get_controls_allowed()
++  assert not safety.get_controls_allowed_lat()
++  assert not safety.safety_tx_hook(classic_steer(1))
++
++
++def test_safety_reinitialization_clears_cruise_main_button_edge(inputs):
++  safety = inputs.safety
++  assert safety.safety_rx_hook(inputs.clu(False))
++  assert safety.safety_rx_hook(inputs.clu(True))
++  assert safety.get_controls_allowed_lat()
++  # Reinitializing while the button was pressed must not retain the old edge.
++  restarted = HyundaiRxInputs(inputs.mode, inputs.param)
++  assert not safety.get_controls_allowed_lat()
++  assert safety.safety_rx_hook(restarted.clu(True))
++  assert safety.get_acc_main_on()
++  assert safety.get_controls_allowed_lat()
++  assert safety.safety_tx_hook(classic_steer(1))
++
++
++@pytest.mark.parametrize("bus,length", ((1, 4), (2, 4), (0, 8), (0, 5)))
++def test_wrong_bus_or_length_cruise_main_cannot_arm(inputs, bus, length):
++  safety = inputs.safety
++  assert safety.safety_rx_hook(inputs.clu(False))
++  safety.safety_rx_hook(inputs.clu(True, bus=bus, length=length))
++  assert not safety.get_acc_main_on()
++  assert not safety.get_controls_allowed_lat()
++  assert not safety.safety_tx_hook(classic_steer(1))
++
++
++def test_frozen_cruise_counter_cannot_arm_aol(inputs):
++  safety = inputs.safety
++  assert safety.safety_rx_hook(inputs.clu(False, counter=1))
++  # Five repeated counters invalidate CLU11. A main-button edge in another
++  # repeated packet must not reach the vehicle hook or change permission.
++  for _ in range(5):
++    valid = safety.safety_rx_hook(inputs.clu(False, counter=1))
++  assert not valid
++  assert not safety.safety_rx_hook(inputs.clu(True, counter=1))
++  assert not safety.get_acc_main_on()
++  assert not safety.get_controls_allowed_lat()
++  assert not safety.safety_tx_hook(classic_steer(1))
++
++
++@pytest.mark.parametrize("torque", (-1024, -400, -1, 0, 1, 400, 1023))
++def test_mdps_signed_driver_torque_reaches_sample_window(inputs, torque):
++  safety = inputs.safety
++  for _ in range(6):
++    assert safety.safety_rx_hook(inputs.mdps(torque))
++  assert safety.get_torque_driver_min() == torque
++  assert safety.get_torque_driver_max() == torque
++
++
++@pytest.mark.parametrize("bus,length", ((1, 8), (2, 8), (0, 4), (0, 7)))
++def test_wrong_bus_or_length_mdps_cannot_update_driver_sample(inputs, bus, length):
++  safety = inputs.safety
++  for _ in range(6):
++    safety.safety_rx_hook(inputs.mdps(-400, bus=bus, length=length))
++  assert safety.get_torque_driver_min() == 0
++  assert safety.get_torque_driver_max() == 0
++
++
++@pytest.mark.parametrize("sign", (-1, 1))
++def test_received_driver_override_constrains_opposing_steering(inputs, sign):
++  safety = inputs.safety
++  inputs.arm_aol()
++  for _ in range(6):
++    assert safety.safety_rx_hook(inputs.mdps(sign * 400))
++  assert safety.safety_tx_hook(classic_steer(sign * 7))
++  safety.set_desired_torque_last(0)
++  safety.set_rt_torque_last(0)
++  assert not safety.safety_tx_hook(classic_steer(-sign))
++
++
++@pytest.mark.parametrize("sign", (-1, 1))
++def test_can_armed_steering_preserves_custom_torque_and_rate_limits(inputs, sign):
++  safety = inputs.safety
++  inputs.arm_aol()
++  assert safety.safety_tx_hook(classic_steer(sign * 7))
++  assert not safety.safety_tx_hook(classic_steer(sign * 15))  # Increase exceeds 7.
++  for _ in range(6):
++    assert safety.safety_rx_hook(inputs.mdps(-sign * 400))
++  safety.set_desired_torque_last(sign * 20)
++  safety.set_rt_torque_last(sign * 20)
++  assert safety.safety_tx_hook(classic_steer(sign * 12))
++  safety.set_desired_torque_last(sign * 20)
++  assert not safety.safety_tx_hook(classic_steer(sign * 13))  # Driver override requires at least 8 decrease.
++  for _ in range(6):
++    assert safety.safety_rx_hook(inputs.mdps())
++  safety.set_desired_torque_last(sign * 404)
++  safety.set_rt_torque_last(sign * 404)
++  assert safety.safety_tx_hook(classic_steer(sign * 404))
++  assert not safety.safety_tx_hook(classic_steer(sign * 405))
++
++
++@pytest.mark.parametrize("stale_address", (0x4F1, 0x251))
++def test_stale_steering_input_revokes_can_armed_aol(inputs, stale_address):
++  safety = inputs.safety
++  inputs.refresh_all(counter=1)
++  inputs.arm_aol()
++  safety.safety_tick_current_safety_config()
++  assert safety.safety_config_valid()
++  assert safety.safety_tx_hook(classic_steer(1))
++  safety.set_timer(1_100_000)
++  inputs.refresh_all(counter=2, omit=stale_address)
++  safety.safety_tick_current_safety_config()
++  assert not safety.safety_config_valid()
++  assert not safety.get_controls_allowed_lat()
++  assert not safety.safety_tx_hook(classic_steer(1))
++  # Unrelated traffic cannot re-arm a latched request after its input timed out.
++  assert safety.safety_rx_hook(packet(0x371, 0, 8))
++  assert not safety.get_controls_allowed_lat()
++
++
++@pytest.mark.parametrize("disengage,pause,resumes", ((True, False, False), (False, True, True)))
++def test_can_armed_aol_preserves_brake_configuration(inputs, disengage, pause, resumes):
++  safety = inputs.safety
++  safety.set_aol_params(True, disengage, pause)
++  assert safety.safety_rx_hook(inputs.brake(False, counter=1))
++  inputs.arm_aol()
++  assert safety.safety_tx_hook(classic_steer(1))
++  assert safety.safety_rx_hook(inputs.brake(True, counter=2))
++  assert safety.get_brake_pressed_prev()
++  assert not safety.get_controls_allowed_lat()
++  assert not safety.safety_tx_hook(classic_steer(1))
++  assert safety.safety_rx_hook(inputs.brake(False, counter=3))
++  assert safety.get_controls_allowed_lat() == resumes
++  assert bool(safety.safety_tx_hook(classic_steer(1))) == resumes

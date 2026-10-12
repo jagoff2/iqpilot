@@ -29,8 +29,9 @@ def test_classic_safety_configurations_initialize(safety, mode, param):
 
 
 @pytest.mark.parametrize("mode", (CarParams.SafetyModel.hyundai, CarParams.SafetyModel.hyundaiLegacy))
-def test_classic_tx_whitelist_and_steering_limits(safety, mode):
-  safety.set_safety_hooks(mode, 0)
+@pytest.mark.parametrize("param", (0, HyundaiSafetyFlags.ALT_LIMITS, HyundaiSafetyFlags.ALT_LIMITS_2))
+def test_classic_tx_whitelist_and_steering_limits(safety, mode, param):
+  safety.set_safety_hooks(mode, param)
   safety.init_tests()
 
   assert not safety.safety_tx_hook(packet(0x123, 0, 8))
@@ -41,22 +42,12 @@ def test_classic_tx_whitelist_and_steering_limits(safety, mode):
   assert not safety.safety_tx_hook(classic_steer(1))
 
   safety.set_controls_allowed(True)
-  assert safety.safety_tx_hook(classic_steer(10))
-  safety.set_desired_torque_last(512)
-  safety.set_rt_torque_last(512)
-  assert safety.safety_tx_hook(classic_steer(512))
-  assert not safety.safety_tx_hook(classic_steer(513))
-  assert not safety.safety_tx_hook(classic_steer(-513))
-
-
-def test_classic_alt_limits_2(safety):
-  safety.set_safety_hooks(CarParams.SafetyModel.hyundai, HyundaiSafetyFlags.ALT_LIMITS_2)
-  safety.init_tests()
-  safety.set_controls_allowed(True)
-  safety.set_desired_torque_last(170)
-  safety.set_rt_torque_last(170)
-  assert safety.safety_tx_hook(classic_steer(170))
-  assert not safety.safety_tx_hook(classic_steer(171))
+  assert safety.safety_tx_hook(classic_steer(7))
+  for sign in (-1, 1):
+    safety.set_desired_torque_last(sign * 404)
+    safety.set_rt_torque_last(sign * 404)
+    assert safety.safety_tx_hook(classic_steer(sign * 404))
+    assert not safety.safety_tx_hook(classic_steer(sign * 405))
 
 
 def test_classic_longitudinal_accel_and_aeb_guards(safety):
