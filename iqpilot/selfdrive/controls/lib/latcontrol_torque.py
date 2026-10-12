@@ -20,8 +20,10 @@ from iqpilot.common.filter_simple import FirstOrderFilter
 from iqpilot.common.params import Params
 from iqpilot.common.pid import PIDController
 from iqpilot.common.swaglog import cloudlog
+from iqpilot.common.turn_guard_settings import get_turn_guards_enabled
 from iqpilot.selfdrive.controls.lib.lateral_acceleration_slew_limiter import LateralAccelerationSlewLimiter
 from iqpilot.selfdrive.controls.lib.latcontrol import LatControl
+from iqpilot.selfdrive.controls.lib.turn_guards import apply_turn_guards
 from iqpilot.selfdrive.iqmodeld.config import ModelConstants
 from iqpilot.selfdrive.iqmodeld.parser import safe_exp
 from iqpilot.selfdrive.controls.lib.helpers.nav_torque_pulse import NavTorquePulseBrain
@@ -549,6 +551,8 @@ class LatControlTorque(LatControl):
     self.torque_from_lateral_accel = CI.torque_from_lateral_accel()
     self.lateral_accel_from_torque = CI.lateral_accel_from_torque()
     params = Params()
+    self.turn_guards_enabled = get_turn_guards_enabled(params)
+    cloudlog.event("steering_turn_guards", enabled=self.turn_guards_enabled, vehicle=CP.carFingerprint)
     self.hkg_reduced_torque_feedback = (CP.brand == "hyundai" and
                                         params.get_bool("IQHkgReducedTorqueFeedback") and
                                         not params.get_bool("NeuralNetworkFeedForward"))
@@ -565,6 +569,8 @@ class LatControlTorque(LatControl):
     self.setpoint_lead_enabled = CP.brand == "toyota" and bool(CP.flags & ToyotaFlags.TSS2)
     self.setpoint_lead_filter = FirstOrderFilter(0.0, 1 / (2 * np.pi * LP_FILTER_CUTOFF_HZ), self.dt)
     self.lateral_acceleration_slew_limiter = LateralAccelerationSlewLimiter(Params().get_bool("IQLateralAccelSlew"))
+    self.turn_guard_reference_slew_limiter = LateralAccelerationSlewLimiter(self.lateral_acceleration_slew_limiter.enabled)
+    self.turn_guard_reference_buffer = deque(maxlen=self.lat_accel_request_buffer_len)
 
     self.nnff_assist = NeuralNetworkFeedForward(self, CP, CP_IQ, CI)
 
@@ -593,7 +599,27 @@ class LatControlTorque(LatControl):
     pid_log.version = VERSION
     measured_curvature = -VM.calc_curvature(math.radians(CS.steeringAngleDeg - params.angleOffsetDeg), CS.vEgo, params.roll)
     measurement = measured_curvature * CS.vEgo ** 2
+    delay_frames = int(np.clip(lat_delay / self.dt + 1, 1, self.lat_accel_request_buffer_len))
     target_curvature = desired_curvature
+    if self.turn_guards_enabled:
+      # Track the unmodified request through an independent copy of the optional
+      # slew limiter. Guarded requests must never feed their own reference.
+      reference_limiter = self.turn_guard_reference_slew_limiter
+      reference_limiter.enabled = self.lateral_acceleration_slew_limiter.enabled
+      requested_accel = desired_curvature * CS.vEgo ** 2
+      if not active and reference_limiter.enabled:
+        reference_limiter.reset(requested_accel)
+      reference_curvature = reference_limiter.update(desired_curvature, CS.vEgo, self.dt)
+      if not active:
+        self.turn_guard_reference_buffer.clear()
+      else:
+        self.turn_guard_reference_buffer.append(reference_curvature * CS.vEgo ** 2)
+        if CS.vEgo != 0.0 and len(self.turn_guard_reference_buffer) >= delay_frames:
+          guarded_accel = apply_turn_guards(requested_accel, measurement, self.turn_guard_reference_buffer[-delay_frames])
+          if guarded_accel != requested_accel:
+            # The existing slew limiter then feeds NNFF's current target and
+            # the PID's delayed request buffer, with matching NNFF curvature.
+            target_curvature = guarded_accel / CS.vEgo ** 2
     if not active and self.lateral_acceleration_slew_limiter.enabled:
       self.lateral_acceleration_slew_limiter.reset(target_curvature * CS.vEgo ** 2)
     limited_curvature = self.lateral_acceleration_slew_limiter.update(target_curvature, CS.vEgo, self.dt)
@@ -604,7 +630,6 @@ class LatControlTorque(LatControl):
     curvature_deadzone = abs(VM.calc_curvature(math.radians(self.steering_angle_deadzone_deg), CS.vEgo, 0.0))
     lateral_accel_deadzone = curvature_deadzone * CS.vEgo ** 2
 
-    delay_frames = int(np.clip(lat_delay / self.dt + 1, 1, self.lat_accel_request_buffer_len))
     expected_lateral_accel = self.lat_accel_request_buffer[-delay_frames]
     setpoint = expected_lateral_accel
     if self.setpoint_lead_enabled:
