@@ -17,7 +17,8 @@ DESIRE_LEN = 8
 
 def get_action_from_model(outputs: dict[str, np.ndarray], prev_action: log.ModelDataV2.Action,
                           v_ego: float, lat_action_t: float, long_action_t: float,
-                          lat_smooth_seconds: float | None = None) -> log.ModelDataV2.Action:
+                          lat_smooth_seconds: float | None = None,
+                          spatial_reference: bool = False) -> log.ModelDataV2.Action:
   if "action" in outputs:
     desired_accel = float(outputs["action"][0, 1])
     desired_curvature = float(outputs["action"][0, 0]) / (max(1.0, v_ego)) ** 2
@@ -30,15 +31,21 @@ def get_action_from_model(outputs: dict[str, np.ndarray], prev_action: log.Model
                                                      plan[:, Plan.ACCELERATION][:, 0],
                                                      ModelConstants.T_IDXS,
                                                      action_t=long_action_t)
-    desired_curvature = get_curvature_from_plan(plan[:, Plan.T_FROM_CURRENT_EULER][:, 2],
-                                                plan[:, Plan.ORIENTATION_RATE][:, 2],
-                                                ModelConstants.T_IDXS, v_ego, lat_action_t)
+    if spatial_reference:
+      from iqpilot.selfdrive.iqmodeld.messaging import pick_curvature
+      desired_curvature = (prev_action.desiredCurvature if v_ego <= MIN_LAT_CONTROL_SPEED else
+                           pick_curvature(outputs, plan, v_ego, lat_action_t, True, True))
+    else:
+      desired_curvature = get_curvature_from_plan(plan[:, Plan.T_FROM_CURRENT_EULER][:, 2],
+                                                  plan[:, Plan.ORIENTATION_RATE][:, 2],
+                                                  ModelConstants.T_IDXS, v_ego, lat_action_t)
     desired_accel, should_stop = float(desired_accel), bool(should_stop)
     desired_curvature = float(desired_curvature)
   desired_accel = smooth_value(desired_accel, prev_action.desiredAcceleration, LONG_SMOOTH_SECONDS)
   if v_ego > MIN_LAT_CONTROL_SPEED:
     lat_smooth = LAT_SMOOTH_SECONDS if lat_smooth_seconds is None else lat_smooth_seconds
-    desired_curvature = smooth_value(desired_curvature, prev_action.desiredCurvature, lat_smooth)
+    if np.isfinite(prev_action.desiredCurvature):
+      desired_curvature = smooth_value(desired_curvature, prev_action.desiredCurvature, lat_smooth)
   else:
     desired_curvature = prev_action.desiredCurvature
   return log.ModelDataV2.Action(desiredCurvature=float(desired_curvature),

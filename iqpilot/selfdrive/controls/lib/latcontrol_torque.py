@@ -668,6 +668,11 @@ class LatControlTorque(LatControl):
     if self.setpoint_lead_enabled:
       request_ramp_rate = (future_desired_lateral_accel - expected_lateral_accel) / max(lat_delay, self.dt)
       setpoint += self.setpoint_lead_filter.update(request_ramp_rate) * lat_delay
+    if not nnff_active:
+      # Keep the delayed entry response, but never ask feedback to deepen a
+      # turn beyond the current request or retain its old sign on reversal.
+      setpoint = float(np.clip(setpoint, min(0.0, future_desired_lateral_accel),
+                               max(0.0, future_desired_lateral_accel)))
     error = setpoint - measurement
 
     lookahead_idx = int(np.clip(-delay_frames + self.lookahead_frames, -self.lat_accel_request_buffer_len+1, -2))

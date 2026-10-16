@@ -255,6 +255,12 @@ class Controls(IQControlsLayer):
       model_v2, CC.latActive, self.curvature, maneuver_curvature,
       self.curvature_lookahead_enabled, self.LaC.supports_legacy_curvature_lookahead,
     )
+    if not math.isfinite(new_desired_curvature):
+      CC.latActive = False
+      self.LaC.reset()
+      new_desired_curvature = self.curvature
+      self.desired_curvature = self.curvature
+      self.lateral_action_selection = log.ControlsState.LateralActionSelection.inactive
 
     self.smooth_steer_inactive_frames = 0 if CC.latActive else self.smooth_steer_inactive_frames + 1
     if self.is_curvature_car and self.enable_smooth_steer and self.smooth_steer_inactive_frames < SMOOTH_STEER_HOLD_FRAMES:

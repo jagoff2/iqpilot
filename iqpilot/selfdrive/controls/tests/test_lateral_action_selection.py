@@ -23,9 +23,12 @@ def test_unknown_model_cannot_replace_action(controls_module, case, slew):
   np.testing.assert_array_equal(enabled, disabled)
 
 
-@pytest.mark.parametrize("case", CONTROL_CASES)
+# Standard torque now projects its delayed feedback target during unwind and
+# reversal. Its old outputs are intentionally replaced by the analytical checks
+# in test_standard_unwind.py; keep the historical fixture for unchanged controls.
+@pytest.mark.parametrize("case", ["pq", "angle", "curvature", "mqb_v0", "pid"])
 @pytest.mark.parametrize("slew", [False, True])
-def test_toggle_off_matches_pre_fix_outputs(controls_module, case, slew):
+def test_unchanged_controllers_match_historical_toggle_off_outputs(controls_module, case, slew):
   with np.load(Path(__file__).with_name("fixtures") / "lateral_lookahead_off.npz") as baseline:
     for smooth in ((False, True) if case == "curvature" else (False,)):
       actual = run_scenario(build_controls(controls_module, case, lookahead=False, slew=slew, smooth=smooth))

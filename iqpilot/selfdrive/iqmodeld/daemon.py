@@ -382,7 +382,8 @@ class NeuralEngineState(InferenceStateBase):
 
       accel_cmd = smooth_value(accel_cmd, previous_action.desiredAcceleration, self.LONG_SMOOTH_SECONDS)
       if vehicle_speed > self.MIN_LAT_CONTROL_SPEED:
-        curvature_cmd = smooth_value(curvature_cmd, previous_action.desiredCurvature, lat_smooth_seconds)
+        if np.isfinite(previous_action.desiredCurvature):
+          curvature_cmd = smooth_value(curvature_cmd, previous_action.desiredCurvature, lat_smooth_seconds)
       else:
         curvature_cmd = previous_action.desiredCurvature
 
@@ -402,10 +403,16 @@ class NeuralEngineState(InferenceStateBase):
     )
     accel_cmd = smooth_value(accel_cmd, previous_action.desiredAcceleration, self.LONG_SMOOTH_SECONDS)
 
-    curvature_cmd = pick_curvature(outputs, plan_rows, vehicle_speed, lat_action_t, self.mlsim)
+    spatial_reference = getattr(self, "standard_torque_spatial_reference", False)
+    if spatial_reference and self.generation is not None and self.generation >= 10 and vehicle_speed <= self.MIN_LAT_CONTROL_SPEED:
+      # Preserve the producer's low-speed hold before querying moving geometry.
+      curvature_cmd = previous_action.desiredCurvature
+    else:
+      curvature_cmd = pick_curvature(outputs, plan_rows, vehicle_speed, lat_action_t, self.mlsim, spatial_reference)
     if self.generation is not None and self.generation >= 10:
       if vehicle_speed > self.MIN_LAT_CONTROL_SPEED:
-        curvature_cmd = smooth_value(curvature_cmd, previous_action.desiredCurvature, lat_smooth_seconds)
+        if np.isfinite(previous_action.desiredCurvature):
+          curvature_cmd = smooth_value(curvature_cmd, previous_action.desiredCurvature, lat_smooth_seconds)
       else:
         curvature_cmd = previous_action.desiredCurvature
 
@@ -595,6 +602,11 @@ class InferenceDaemon:
     self._perf_ring = PerfTraceRing()
 
     self._car_params = self._load_car_params(demo)
+    # Controller selection is fixed for this process/drive. NNFF retains its
+    # existing reference until its separate future-profile work is qualified.
+    self._runtime.standard_torque_spatial_reference = (
+      self._car_params.lateralTuning.which() == "torque" and not self._params.get_bool("NeuralNetworkFeedForward")
+    )
     self._long_action_delay = self._car_params.longitudinalActuatorDelay + self._runtime.LONG_SMOOTH_SECONDS
     self._previous_action = log.ModelDataV2.Action()
     self._desire_logic = ActionEngine()

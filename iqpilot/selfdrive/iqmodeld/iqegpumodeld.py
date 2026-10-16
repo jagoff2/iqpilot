@@ -461,6 +461,7 @@ def main(demo: bool = False) -> None:
   else:
     CP = messaging.log_from_bytes(params.get("CarParams", block=True), car.CarParams)
   long_delay = CP.longitudinalActuatorDelay + LONG_SMOOTH_SECONDS
+  spatial_reference = CP.lateralTuning.which() == "torque" and not params.get_bool("NeuralNetworkFeedForward")
 
   parser = PhaseParser()
   memory = DrivePacketMemory()
@@ -574,7 +575,7 @@ def main(demo: bool = False) -> None:
     outputs = parser.parse_vision_outputs(sliced)
 
     action = get_action_from_model(outputs, prev_action, v_ego, float(lat_action_t), float(long_action_t),
-                                   lat_smooth_seconds=meta.get("lat_smooth_seconds"))
+                                   lat_smooth_seconds=meta.get("lat_smooth_seconds"), spatial_reference=spatial_reference)
     prev_action = action
 
     model_msg = messaging.new_message("modelV2")

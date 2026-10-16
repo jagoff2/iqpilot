@@ -10,18 +10,27 @@ from iqpilot.cereal import log
 from iqpilot.selfdrive.iqmodeld.cot_decode import ReasoningWire
 from iqpilot.selfdrive.iqmodeld.config import ModelConstants, Plan
 from iqpilot.selfdrive.controls.lib.drive_helpers import get_curvature_from_plan
+from iqpilot.selfdrive.controls.lib.spatial_heading import SpatialHeadingError, get_spatial_curvature
 
 SEND_RAW_PRED = os.getenv("SEND_RAW_PRED")
 ConfidenceClass = log.ModelDataV2.ConfidenceClass
 
 
 def pick_curvature(outputs: dict[str, np.ndarray], plan_rows: np.ndarray, vehicle_speed: float,
-                   action_horizon: float, synthetic_lane_logic: bool) -> float:
+                   action_horizon: float, synthetic_lane_logic: bool, spatial_reference: bool = False) -> float:
   direct_signal = None if synthetic_lane_logic else outputs.get("desired_curvature")
   if direct_signal is not None:
     return float(direct_signal[0, 0])
 
   yaw_track = plan_rows[:, Plan.T_FROM_CURRENT_EULER][:, 2]
+  if spatial_reference:
+    try:
+      return get_spatial_curvature(ModelConstants.T_IDXS, plan_rows[:, Plan.VELOCITY][:, 0],
+                                   yaw_track, vehicle_speed, action_horizon)
+    except SpatialHeadingError:
+      # Explicitly invalid lateral action; controlsd disables lateral output.
+      # Do not silently reinstate the time/speed conversion that this replaces.
+      return float("nan")
   yaw_rate_track = plan_rows[:, Plan.ORIENTATION_RATE][:, 2]
   return float(get_curvature_from_plan(yaw_track, yaw_rate_track, ModelConstants.T_IDXS, vehicle_speed, action_horizon))
 
