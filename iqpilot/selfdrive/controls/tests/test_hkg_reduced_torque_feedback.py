@@ -10,7 +10,7 @@ from iqpilot.common.params import Params
 from iqpilot.common.realtime import DT_CTRL
 from iqpilot.selfdrive.car import interfaces as iqpilot_interfaces
 from iqpilot.selfdrive.car.helpers import convert_to_capnp
-from iqpilot.selfdrive.controls.lib.latcontrol_torque import JERK_GAIN, LatControlTorque
+from iqpilot.selfdrive.controls.lib.latcontrol_torque import LatControlTorque, friction_error_with_preview
 
 
 def make_controller(platform, enabled, nnff=False):
@@ -56,7 +56,8 @@ def test_hkg_scales_feedback_and_friction_only(platform, speed):
   assert trace.desiredLateralJerk == baseline.desiredLateralJerk
   for field in ["latAccelFactor", "latAccelOffset", "friction", "steeringAngleDeadzoneDeg"]:
     assert getattr(tuned.torque_params, field) == getattr(base.torque_params, field)
-  friction = get_friction(baseline.error + JERK_GAIN * baseline.desiredLateralJerk, 0.0, FRICTION_THRESHOLD, base.torque_params)
+  friction_error = friction_error_with_preview(baseline.error, baseline.actualLateralAccel, baseline.desiredLateralJerk)
+  friction = get_friction(friction_error, 0.0, FRICTION_THRESHOLD, base.torque_params)
   assert trace.f == pytest.approx(baseline.f - 0.3 * friction, abs=1e-7)
   expected = -tuned.torque_from_lateral_accel(trace.p + trace.i + trace.f, tuned.torque_params)
   assert output == pytest.approx(np.clip(expected, -1, 1), abs=1e-7)
@@ -89,7 +90,8 @@ def test_live_torque_updates_preserve_scale_and_disengagement():
     controller.update_live_torque_params(3.2, 0.05, 0.14)
   _, baseline = drive(base, vm, cp, 12.5)
   _, trace = drive(tuned, vm, cp, 12.5)
-  friction = get_friction(baseline.error + JERK_GAIN * baseline.desiredLateralJerk, 0.0, FRICTION_THRESHOLD, base.torque_params)
+  friction_error = friction_error_with_preview(baseline.error, baseline.actualLateralAccel, baseline.desiredLateralJerk)
+  friction = get_friction(friction_error, 0.0, FRICTION_THRESHOLD, base.torque_params)
   assert trace.f == pytest.approx(baseline.f - 0.3 * friction, abs=1e-7)
   output, trace = drive(tuned, vm, cp, 12.5, active=False)
   assert output == 0.0

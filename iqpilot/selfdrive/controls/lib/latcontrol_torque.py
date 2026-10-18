@@ -22,6 +22,7 @@ from iqpilot.common.params import Params
 from iqpilot.common.pid import PIDController
 from iqpilot.common.swaglog import cloudlog
 from iqpilot.common.turn_guard_settings import get_turn_guards_enabled
+from iqpilot.selfdrive.controls.lib.actuator_feedback import SteeringActuatorFeedback
 from iqpilot.selfdrive.controls.lib.lateral_acceleration_slew_limiter import LateralAccelerationSlewLimiter
 from iqpilot.selfdrive.controls.lib.latcontrol import LatControl
 from iqpilot.selfdrive.controls.lib.turn_guards import apply_turn_guards
@@ -566,6 +567,18 @@ JERK_GAIN = 0.3
 LAT_ACCEL_REQUEST_BUFFER_SECONDS = 1.0
 VERSION = 1
 
+
+def friction_error_with_preview(error: float, measurement: float, desired_jerk: float) -> float:
+  """Keep the preview target inside the measured/desired/straight envelope.
+
+  This allows anticipation toward straight while unwinding, but cannot
+  deepen a measured turn when tracking error asks for an outward correction.
+  The bounds remain continuous through zero error and zero measurement.
+  """
+  return float(np.clip(error + JERK_GAIN * desired_jerk,
+                       min(error, -measurement, 0.0), max(error, -measurement, 0.0)))
+
+
 class LatControlTorque(LatControl):
   supports_legacy_curvature_lookahead = True
 
@@ -584,6 +597,7 @@ class LatControlTorque(LatControl):
     self.friction_scale = 0.7 if self.hkg_reduced_torque_feedback else 1.0
     self.pid = PIDController([INTERP_SPEEDS, self.standard_p_gains], KI, rate=1/self.dt)
     self._nnff_active = False
+    self._actuator_feedback = None
     self.update_limits()
     self.steering_angle_deadzone_deg = self.torque_params.steeringAngleDeadzoneDeg
     self.lat_accel_request_buffer_len = int(LAT_ACCEL_REQUEST_BUFFER_SECONDS / self.dt)
@@ -595,6 +609,7 @@ class LatControlTorque(LatControl):
     self.lateral_acceleration_slew_limiter = LateralAccelerationSlewLimiter(Params().get_bool("IQLateralAccelSlew"))
     self.turn_guard_reference_slew_limiter = LateralAccelerationSlewLimiter(self.lateral_acceleration_slew_limiter.enabled)
     self.turn_guard_reference_buffer = deque(maxlen=self.lat_accel_request_buffer_len)
+    self.friction_accel_request_buffer = deque(maxlen=self.lat_accel_request_buffer_len)
 
     self.nnff_assist = NeuralNetworkFeedForward(self, CP, CP_IQ, CI)
 
@@ -619,6 +634,40 @@ class LatControlTorque(LatControl):
     super().reset()
     self.pid.reset()
     self.nnff_assist.reset_history()
+    self.friction_accel_request_buffer.clear()
+    self.jerk_filter.x = 0.0
+    self._actuator_feedback = None
+
+  def update_actuator_feedback(self, feedback: SteeringActuatorFeedback) -> None:
+    self._actuator_feedback = feedback
+
+  def _freeze_integrator(self, CS, steer_limited_by_safety, error, feedforward):
+    if CS.steeringPressed or CS.vEgo < 5:
+      return True
+    if not steer_limited_by_safety:
+      return False
+    feedback = self._actuator_feedback
+    if (feedback is None or not feedback.limited or feedback.torque_difference is None or
+        feedback.applied_torque is None or self.torque_params.latAccelFactor <= 0.0):
+      return True
+
+    # Use this tick's gains without advancing PID state. The standard update
+    # below has zero error_rate, so its derivative contribution is zero.
+    self.pid.speed = CS.vEgo
+    current_accel = self.pid.k_p * error + self.pid.i + feedforward
+    proposed_accel = current_accel + self.pid.k_i * self.pid.i_dt * error
+    current = -self.torque_from_lateral_accel(current_accel, self.torque_params)
+    proposed = -self.torque_from_lateral_accel(proposed_accel, self.torque_params)
+    applied, difference = feedback.applied_torque, feedback.torque_difference
+    if not all(math.isfinite(value) for value in (current, proposed, applied, difference)):
+      return True
+    # Permit recovery through a real limit only while both commands remain
+    # on that limit's observed side. After reversal, wait for a fresh pair
+    # instead of using the previous direction to authorize more integration.
+    recovering = (difference * (current - applied) > 0.0 and
+                  difference * (proposed - applied) >= 0.0 and
+                  abs(proposed - applied) < abs(current - applied))
+    return not recovering
 
   def update(self, active, CS, VM, params, steer_limited_by_safety, desired_curvature, calibrated_pose, curvature_limited, lat_delay):
     nnff_active = active and self.nnff_assist._nnff_enabled
@@ -634,19 +683,29 @@ class LatControlTorque(LatControl):
     measurement = measured_curvature * CS.vEgo ** 2
     delay_frames = int(np.clip(lat_delay / self.dt + 1, 1, self.lat_accel_request_buffer_len))
     target_curvature = desired_curvature
+    # A separate, slew-matched reference keeps the steering measurement out of
+    # the differentiated feedforward history, even when turn guards are active.
+    reference_limiter = self.turn_guard_reference_slew_limiter
+    reference_limiter.enabled = self.lateral_acceleration_slew_limiter.enabled
+    requested_accel = desired_curvature * CS.vEgo ** 2
+    if not active and reference_limiter.enabled:
+      reference_limiter.reset(requested_accel)
+    reference_curvature = reference_limiter.update(desired_curvature, CS.vEgo, self.dt)
+    reference_accel = reference_curvature * CS.vEgo ** 2
+    if active:
+      if not self.friction_accel_request_buffer:
+        # No derivative is known on engagement. Seed a constant reference
+        # instead of fabricating a ramp from zero or retaining the previous drive.
+        self.friction_accel_request_buffer.extend([reference_accel] * self.lat_accel_request_buffer_len)
+      else:
+        self.friction_accel_request_buffer.append(reference_accel)
     if self.turn_guards_enabled:
       # Track the unmodified request through an independent copy of the optional
       # slew limiter. Guarded requests must never feed their own reference.
-      reference_limiter = self.turn_guard_reference_slew_limiter
-      reference_limiter.enabled = self.lateral_acceleration_slew_limiter.enabled
-      requested_accel = desired_curvature * CS.vEgo ** 2
-      if not active and reference_limiter.enabled:
-        reference_limiter.reset(requested_accel)
-      reference_curvature = reference_limiter.update(desired_curvature, CS.vEgo, self.dt)
       if not active:
         self.turn_guard_reference_buffer.clear()
       else:
-        self.turn_guard_reference_buffer.append(reference_curvature * CS.vEgo ** 2)
+        self.turn_guard_reference_buffer.append(reference_accel)
         if CS.vEgo != 0.0 and len(self.turn_guard_reference_buffer) >= delay_frames:
           guarded_accel = apply_turn_guards(requested_accel, measurement, self.turn_guard_reference_buffer[-delay_frames])
           if guarded_accel != requested_accel:
@@ -676,13 +735,15 @@ class LatControlTorque(LatControl):
     error = setpoint - measurement
 
     lookahead_idx = int(np.clip(-delay_frames + self.lookahead_frames, -self.lat_accel_request_buffer_len+1, -2))
-    raw_lateral_jerk = (self.lat_accel_request_buffer[lookahead_idx+1] - self.lat_accel_request_buffer[lookahead_idx-1]) / (2 * self.dt)
+    jerk_reference = self.friction_accel_request_buffer
+    raw_lateral_jerk = ((jerk_reference[lookahead_idx+1] - jerk_reference[lookahead_idx-1]) / (2 * self.dt)
+                       if active else 0.0)
     desired_lateral_jerk = self.jerk_filter.update(raw_lateral_jerk)
     gravity_adjusted_future_lateral_accel = future_desired_lateral_accel - roll_compensation
     ff = gravity_adjusted_future_lateral_accel
     ff -= self.torque_params.latAccelOffset
-    ff += self.friction_scale * get_friction(error + JERK_GAIN * desired_lateral_jerk, lateral_accel_deadzone,
-                                            FRICTION_THRESHOLD, self.torque_params)
+    friction_error = friction_error_with_preview(error, measurement, desired_lateral_jerk)
+    ff += self.friction_scale * get_friction(friction_error, lateral_accel_deadzone, FRICTION_THRESHOLD, self.torque_params)
 
     if not active:
       self.reset()
@@ -693,7 +754,7 @@ class LatControlTorque(LatControl):
 
       output_torque = 0.0
       if not nnff_active:
-        freeze_integrator = steer_limited_by_safety or CS.steeringPressed or CS.vEgo < 5
+        freeze_integrator = self._freeze_integrator(CS, steer_limited_by_safety, error, ff)
         output_lataccel = self.pid.update(pid_log.error, speed=CS.vEgo, feedforward=ff, freeze_integrator=freeze_integrator)
         output_torque = self.torque_from_lateral_accel(output_lataccel, self.torque_params)
 
@@ -712,7 +773,7 @@ class LatControlTorque(LatControl):
         self.pid.reset()
         self.update_limits()
         pid_log.error = float(error)
-        freeze_integrator = steer_limited_by_safety or CS.steeringPressed or CS.vEgo < 5
+        freeze_integrator = self._freeze_integrator(CS, steer_limited_by_safety, error, ff)
         output_lataccel = self.pid.update(pid_log.error, speed=CS.vEgo, feedforward=ff, freeze_integrator=freeze_integrator)
         output_torque = self.torque_from_lateral_accel(output_lataccel, self.torque_params)
         output_torque = self.nnff_assist.nav_torque_pulse.nudge_output_torque(True, CS, output_torque)

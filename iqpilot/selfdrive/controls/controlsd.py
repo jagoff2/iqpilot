@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import math
+import os
 import time
 from numbers import Number
 
@@ -16,6 +17,7 @@ from iqdbc.car.car_helpers import interfaces
 from iqdbc.car.vehicle_model import VehicleModel
 from iqpilot.common.steer_delay import lateral_action_delay
 from iqpilot.selfdrive.controls.lib.drive_helpers import clip_curvature
+from iqpilot.selfdrive.controls.lib.actuator_feedback import SteeringActuatorFeedback, steering_feedback_from_output
 from iqpilot.selfdrive.controls.lib.curvature_lookahead import select_lateral_curvature
 from iqpilot.selfdrive.controls.lib.latcontrol import LatControl
 from iqpilot.selfdrive.controls.lib.latcontrol_pid import LatControlPID
@@ -35,6 +37,7 @@ NavTurnSignalController = import_verified_module(
 ).NavTurnSignalController
 
 State = log.SelfdriveState.OpenpilotState
+REPLAY = "REPLAY" in os.environ
 EventName = log.OnroadEvent.EventName
 LaneChangeState = log.LaneChangeState
 LaneChangeDirection = log.LaneChangeDirection
@@ -344,13 +347,23 @@ class Controls(IQControlsLayer):
       hudControl.leftLaneDepart = self.sm['driverAssistance'].leftLaneDeparture
       hudControl.rightLaneDepart = self.sm['driverAssistance'].rightLaneDeparture
 
+    actuator_feedback = SteeringActuatorFeedback(True)
     if CC.latActive:
-      CO = self.sm['carOutput']
-      if self.CP.steerControlType in (car.CarParams.SteerControlType.angle, car.CarParams.SteerControlType.curvatureDEPRECATED):
-        self.steer_limited_by_safety = abs(CC.actuators.steeringAngleDeg - CO.actuatorsOutput.steeringAngleDeg) > \
-                                              STEER_ANGLE_SATURATION_THRESHOLD
-      else:
-        self.steer_limited_by_safety = abs(CC.actuators.torque - CO.actuatorsOutput.torque) > 1e-2
+      # Card publishes the previous apply result before consuming its next
+      # request. Compare the paired input, never this cycle's new command.
+      # Process replay rewrites envelope times into the recorded clock without
+      # virtualizing the host clock. Use the consumed event clock in replay.
+      feedback_now = max(self.sm.logMonoTime.values()) if REPLAY else time.monotonic_ns()
+      actuator_feedback = steering_feedback_from_output(
+        self.sm['carOutput'], feedback_valid=self.sm.all_checks(['carOutput']),
+        output_mono_time=self.sm.logMonoTime['carOutput'], now_mono_time=feedback_now,
+        angle_control=self.CP.steerControlType in (car.CarParams.SteerControlType.angle, car.CarParams.SteerControlType.curvatureDEPRECATED),
+        angle_threshold=STEER_ANGLE_SATURATION_THRESHOLD,
+      )
+      self.steer_limited_by_safety = actuator_feedback.limited
+    update_feedback = getattr(getattr(self, 'LaC', None), 'update_actuator_feedback', None)
+    if callable(update_feedback):
+      update_feedback(actuator_feedback)
 
     # TODO: both controlsState and carControl valids should be set by
     #       sm.all_checks(), but this creates a circular dependency

@@ -544,6 +544,13 @@ struct CarOutput {
   # the CarController are reflected in actuatorsOutput
   # and matches what is sent to the car
   actuatorsOutput @0 :CarControl.Actuators;
+
+  # Exact input paired with actuatorsOutput by the same CI.apply call.
+  # A zero request timestamp means no valid external request (startup/fallback).
+  actuatorsInput @1 :CarControl.Actuators;
+  carControlMonoTime @2 :UInt64;
+  actuationMonoTime @3 :UInt64;
+  latActive @4 :Bool;
 }
 
 # ****** car param ******
