@@ -1,19 +1,36 @@
-import numpy as np
+from dataclasses import dataclass
+
 import pytest
 
 from iqpilot.cereal import log, car
 from iqpilot.common.realtime import DT_DMON
+from iqpilot.common.params import Params
+from iqpilot.selfdrive.monitoring import helpers
 from iqpilot.selfdrive.monitoring.helpers import DriverMonitoring, DRIVER_MONITOR_SETTINGS
 from iqpilot.system.hardware import HARDWARE
 
 EventName = log.OnroadEvent.EventName
 dm_settings = DRIVER_MONITOR_SETTINGS(device_type=HARDWARE.get_device_type())
 
-TEST_TIMESPAN = 120  # seconds
+TEST_TIMESPAN = max(120, int(3 * dm_settings._DISTRACTED_TIME + 30), int(2 * dm_settings._AWARENESS_TIME + 30))  # seconds
 DISTRACTED_SECONDS_TO_ORANGE = dm_settings._DISTRACTED_TIME - dm_settings._DISTRACTED_PROMPT_TIME_TILL_TERMINAL + 1
 DISTRACTED_SECONDS_TO_RED = dm_settings._DISTRACTED_TIME + 1
 INVISIBLE_SECONDS_TO_ORANGE = dm_settings._AWARENESS_TIME - dm_settings._AWARENESS_PROMPT_TIME_TILL_TERMINAL + 1
 INVISIBLE_SECONDS_TO_RED = dm_settings._AWARENESS_TIME + 1
+
+
+@pytest.fixture(autouse=True)
+def isolated_monitoring_params(tmp_path, monkeypatch):
+  params = Params(str(tmp_path / "params"))
+  monkeypatch.setattr(helpers, "Params", lambda: params)
+
+
+@dataclass(frozen=True, slots=True)
+class EventSnapshot:
+  names: tuple[int, ...]
+
+  def __len__(self):
+    return len(self.names)
 
 def make_msg(face_detected, distracted=False, model_uncertain=False):
   ds = log.DriverStateV2.new_message()
@@ -44,7 +61,7 @@ def set_driver_data(data, face_prob=1.0, phone_prob=0.0):
   data.phoneProb = phone_prob
 
 
-# driver state from neural net, 10Hz
+# driver state from neural net, 20 Hz
 msg_NO_FACE_DETECTED = make_msg(False)
 msg_ATTENTIVE = make_msg(True)
 msg_DISTRACTED = make_msg(True, distracted=True)
@@ -65,15 +82,17 @@ always_false = [False] * int(TEST_TIMESPAN / DT_DMON)
 
 class TestMonitoring:
   def _run_seq(self, msgs, interaction, engaged, standstill):
+    assert len(msgs) == len(interaction) == len(engaged) == len(standstill)
     DM = DriverMonitoring()
     events = []
     for idx in range(len(msgs)):
       DM._update_states(msgs[idx], [0, 0, 0], 0, engaged[idx], standstill[idx])
       # cal_rpy and car_speed don't matter here
 
-      # evaluate events at 10Hz for tests
+      # evaluate events at the monitoring timestep
       DM._update_events(interaction[idx], engaged[idx], standstill[idx], 0, 0)
-      events.append(DM.current_events)
+      # Store event names without retaining each frame's full counter mapping.
+      events.append(EventSnapshot(tuple(DM.current_events.names)))
     assert len(events) == len(msgs), f"got {len(events)} for {len(msgs)} driverState input msgs"
     return events, DM
 
@@ -151,8 +170,9 @@ class TestMonitoring:
 
   # engaged, invisible driver, down to orange, driver touches wheel; then down to orange again, driver appears
   #  - both actions should clear the alert, but momentary appearance should not
-  def test_sometimes_transparent_commuter(self):
-    _visible_time = np.random.choice([0.5, 10])
+  @pytest.mark.parametrize("passive_recovery_seconds", [1.5, 30.])
+  def test_sometimes_transparent_commuter(self, passive_recovery_seconds):
+    _visible_time = passive_recovery_seconds * dm_settings._DISTRACTED_TIME / dm_settings._AWARENESS_TIME
     ds_vector = always_no_face[:]*2
     interaction_vector = always_false[:]*2
     ds_vector[int((2*INVISIBLE_SECONDS_TO_ORANGE+1)/DT_DMON):int((2*INVISIBLE_SECONDS_TO_ORANGE+1+_visible_time)/DT_DMON)] = \
@@ -162,10 +182,10 @@ class TestMonitoring:
     assert len(events[int(INVISIBLE_SECONDS_TO_ORANGE*0.5/DT_DMON)]) == 0
     assert events[int((INVISIBLE_SECONDS_TO_ORANGE-0.1)/DT_DMON)].names[0] == EventName.promptDriverUnresponsive
     assert len(events[int((INVISIBLE_SECONDS_TO_ORANGE+0.1)/DT_DMON)]) == 0
-    if _visible_time == 0.5:
+    if passive_recovery_seconds == 1.5:
       assert events[int((INVISIBLE_SECONDS_TO_ORANGE*2+1-0.1)/DT_DMON)].names[0] == EventName.promptDriverUnresponsive
       assert events[int((INVISIBLE_SECONDS_TO_ORANGE*2+1+0.1+_visible_time)/DT_DMON)].names[0] == EventName.preDriverUnresponsive
-    elif _visible_time == 10:
+    else:
       assert events[int((INVISIBLE_SECONDS_TO_ORANGE*2+1-0.1)/DT_DMON)].names[0] == EventName.promptDriverUnresponsive
       assert len(events[int((INVISIBLE_SECONDS_TO_ORANGE*2+1+0.1+_visible_time)/DT_DMON)]) == 0
 
@@ -178,7 +198,7 @@ class TestMonitoring:
     op_vector = always_true[:]
     ds_vector[int(INVISIBLE_SECONDS_TO_RED/DT_DMON):int((INVISIBLE_SECONDS_TO_RED+_visible_time)/DT_DMON)] = [msg_ATTENTIVE] * int(_visible_time/DT_DMON)
     interaction_vector[int((INVISIBLE_SECONDS_TO_RED+_visible_time)/DT_DMON):int((INVISIBLE_SECONDS_TO_RED+_visible_time+1)/DT_DMON)] = [True] * int(1/DT_DMON)
-    op_vector[int((INVISIBLE_SECONDS_TO_RED+_visible_time+1)/DT_DMON):int((INVISIBLE_SECONDS_TO_RED+_visible_time+0.5)/DT_DMON)] = [False] * int(0.5/DT_DMON)
+    op_vector[int((INVISIBLE_SECONDS_TO_RED+_visible_time+1)/DT_DMON):int((INVISIBLE_SECONDS_TO_RED+_visible_time+1.5)/DT_DMON)] = [False] * int(0.5/DT_DMON)
     events, _ = self._run_seq(ds_vector, interaction_vector, op_vector, always_false)
     assert len(events[int(INVISIBLE_SECONDS_TO_ORANGE*0.5/DT_DMON)]) == 0
     assert events[int((INVISIBLE_SECONDS_TO_ORANGE-0.1)/DT_DMON)].names[0] == EventName.promptDriverUnresponsive
@@ -196,7 +216,7 @@ class TestMonitoring:
   # engaged, car stops at traffic light, down to orange, no action, then car starts moving
   #  - should only reach green when stopped, but continues counting down on launch
   def test_long_traffic_light_victim(self):
-    _redlight_time = 60  # seconds
+    _redlight_time = max(60, dm_settings._DISTRACTED_TIME + 10)  # seconds
     standstill_vector = always_true[:]
     standstill_vector[int(_redlight_time/DT_DMON):] = [False] * int((TEST_TIMESPAN-_redlight_time)/DT_DMON)
     events, d_status = self._run_seq(always_distracted, always_false, always_true, standstill_vector)
