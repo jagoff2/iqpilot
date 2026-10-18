@@ -65,6 +65,12 @@ class TinygradSupercomboRuntime:
             'big_tfm':   Tensor(self._npy['big_tfm'], device='NPY'),
             'packed_npy_inputs': Tensor(packed, device='NPY'),
         }
+        if 'peripheral_img' in self._ish:
+            peripheral = self._ish['peripheral_img']
+            if (tuple(peripheral) != tuple(self._ish['img'])
+                    or tuple(peripheral) != tuple(self._ish['big_img'])):
+                raise RuntimeError('peripheral_img, img, and big_img shapes must match')
+            self._queues['peripheral_img_q'] = zeros_u8(img_buf)
         self._cam = (cam_w, cam_h)
 
     def run_fused(self, bufs: dict, transforms: dict[str, np.ndarray], numpy_inputs: NumpyDict) -> NumpyDict:
@@ -95,9 +101,13 @@ class TinygradSupercomboRuntime:
         warp = self._warp_jits[self._cam]
         try:
             warped = warp(tfm=self._queues['tfm'], big_tfm=self._queues['big_tfm'], frame=frame, big_frame=big_frame)
-            out, = self._run_policy(warped=warped, img_q=self._queues['img_q'], big_img_q=self._queues['big_img_q'],
-                                    feat_q=self._queues['feat_q'], desire_q=self._queues['desire_q'],
-                                    packed_npy_inputs=self._queues['packed_npy_inputs'])
+            policy_inputs = dict(warped=warped, img_q=self._queues['img_q'],
+                                 big_img_q=self._queues['big_img_q'], feat_q=self._queues['feat_q'],
+                                 desire_q=self._queues['desire_q'],
+                                 packed_npy_inputs=self._queues['packed_npy_inputs'])
+            if 'peripheral_img' in self._ish:
+                policy_inputs['peripheral_img_q'] = self._queues['peripheral_img_q']
+            out, = self._run_policy(**policy_inputs)
         except Exception as err:
             self._handle_runtime_jit_mismatch(err)
             raise

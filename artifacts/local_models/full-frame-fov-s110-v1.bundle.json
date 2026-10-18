@@ -1,0 +1,43 @@
+{
+  "displayName": "Full Frame FOV (Development)",
+  "environment": "development",
+  "generation": 12,
+  "index": 65001,
+  "internalName": "Full Frame FOV",
+  "is20hz": true,
+  "minimumSelectorVersion": 14,
+  "models": [
+    {
+      "artifact": {
+        "downloadProgress": {
+          "eta": 0,
+          "progress": 100.0,
+          "status": "cached"
+        },
+        "downloadUri": {
+          "sha256": "c47562b76c95d8d9b7dc425dd2c8343e0b9f19d8e9570a047b4fd3aeef23c01b",
+          "uri": ""
+        },
+        "fileName": "driving_supercombo_full_frame_fov_s110_v1_qcom.pkl"
+      },
+      "type": "supercombo"
+    }
+  ],
+  "overrides": [
+    {
+      "key": "folder",
+      "value": "Local candidates"
+    },
+    {
+      "key": "lat",
+      "value": ".0"
+    },
+    {
+      "key": "long",
+      "value": ".3"
+    }
+  ],
+  "ref": "full-frame-fov-s110-v1",
+  "runner": "tinygrad",
+  "status": "cached"
+}

@@ -47,6 +47,8 @@ def test_both_ui_names_without_manager(saved):
     node = next(n for c in tree.body if isinstance(c, ast.ClassDef) and c.name == cls
                 for n in c.body if isinstance(n, ast.FunctionDef) and n.name == method)
     env = {"tr": lambda text: text, "get_selected_model_name": helpers.get_selected_model_name,
+           "_selected_model_name": lambda: helpers.get_selected_model_name(saved),
+           "is_candidate_selected": lambda params: False,
            "time": time, "active_model_declares_drive_profile": lambda params: False,
            "drive_profile_name": lambda params: "neutral",
            "ui_state": SimpleNamespace(params=saved, sm={"iqModelManager": None}, is_offroad=lambda: True)}
@@ -54,6 +56,9 @@ def test_both_ui_names_without_manager(saved):
     values = []
     item = SimpleNamespace(set_value=values.append, set_enabled=lambda value: None)
     ui = SimpleNamespace(_update_refresh_state=lambda: None, _handle_bundle_download_progress=lambda: None,
+                         full_frame_candidate_item=SimpleNamespace(
+                           action_item=SimpleNamespace(set_state=lambda value: None), set_description=lambda value: None),
+                         _full_frame_candidate_description=lambda: "ready",
                          current_model_item=SimpleNamespace(action_item=item, set_description=lambda value: None),
                          drive_profile_item=SimpleNamespace(action_item=item, set_description=lambda value: None),
                          desired_arrival_item=SimpleNamespace(action_item=item, set_visible=lambda value: None),
@@ -71,4 +76,3 @@ def test_both_ui_names_without_manager(saved):
                                            ({"internalName": "Broken"}, "Model unavailable"), ("bad", "Model unavailable")])
 def test_saved_name_states(stored, expected):
   assert helpers.get_selected_model_name(Params({"ModelManager_ActiveBundle": stored})) == expected
-

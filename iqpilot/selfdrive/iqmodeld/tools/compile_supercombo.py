@@ -39,7 +39,14 @@ from iqpilot.selfdrive.iqmodeld.temporal_state import packed_policy_layout, pack
 
 NV12Frame = namedtuple("NV12Frame", ['width', 'height', 'stride', 'y_height', 'uv_height', 'size'])
 WARP_INPUTS = ['tfm', 'big_tfm']
-POLICY_INPUTS = ['img_q', 'big_img_q', 'feat_q', 'desire_q', 'packed_npy_inputs']
+BASE_POLICY_INPUTS = ['img_q', 'big_img_q', 'feat_q', 'desire_q', 'packed_npy_inputs']
+
+
+def policy_inputs(input_shapes):
+  names = list(BASE_POLICY_INPUTS)
+  if 'peripheral_img' in input_shapes:
+    names.append('peripheral_img_q')
+  return names
 
 UV_SCALE_MATRIX = np.array([[0.5, 0, 0], [0, 0.5, 0], [0, 0, 1]], dtype=np.float32)
 UV_SCALE_MATRIX_INV = np.linalg.inv(UV_SCALE_MATRIX)
@@ -152,6 +159,15 @@ def make_input_queues(input_shapes, frame_skip, device):
     'desire_q': Tensor(np.zeros((frame_skip * dp[1], dp[0], dp[2]), dtype=np.float32), device=device).contiguous().realize(),
     'packed_npy_inputs': Tensor(packed_npy_inputs, device='NPY').realize(),
   })
+  if 'peripheral_img' in input_shapes:
+    peripheral = input_shapes['peripheral_img']
+    if (tuple(peripheral) != tuple(input_shapes['img'])
+        or tuple(peripheral) != tuple(input_shapes['big_img'])):
+      raise ValueError('peripheral_img, img, and big_img shapes must match')
+    n_frames = peripheral[1] // 6
+    shape = (frame_skip * (n_frames - 1) + 1, 6, peripheral[2], peripheral[3])
+    input_queues['peripheral_img_q'] = Tensor(
+        np.zeros(shape, dtype=np.uint8), device=device).contiguous().realize()
   return input_queues, npy
 
 
@@ -168,8 +184,41 @@ def sample_desire(buf, frame_skip):
   return buf.reshape(-1, frame_skip, *buf.shape[1:]).max(1).flatten(0, 1).unsqueeze(0)
 
 
-def make_warp(nv12, model_w, model_h, frame_skip):
+def full_wide_geometry(nv12, model_w, model_h):
+  """Pure-numpy full sensor matrix, packed validity mask, and padding bytes."""
+  scale = min(model_w / nv12.width, model_h / nv12.height)
+  extent = np.array([nv12.width, nv12.height]) * scale
+  offset = (np.array([model_w, model_h]) - extent) / 2
+  x, y = np.meshgrid(np.arange(model_w, dtype=np.float64) + .5,
+                     np.arange(model_h, dtype=np.float64) + .5)
+  valid = ((x >= offset[0]) & (x < offset[0] + extent[0]) &
+           (y >= offset[1]) & (y < offset[1] + extent[1]))
+  matrix = np.array([[1 / scale, 0, (.5 - offset[0]) / scale - .5],
+                     [0, 1 / scale, (.5 - offset[1]) / scale - .5],
+                     [0, 0, 1]], dtype=np.float32)
+  phases = [valid[0::2, 0::2], valid[1::2, 0::2],
+            valid[0::2, 1::2], valid[1::2, 1::2]]
+  chroma = np.logical_and.reduce(phases)
+  return (matrix, np.stack(phases + [chroma, chroma]),
+          np.array([16, 16, 16, 16, 128, 128], dtype=np.uint8)[:, None, None])
+
+
+def make_full_wide_prepare(nv12, model_w, model_h):
+  """Equal-scale full stored sensor mapping with studio-range YUV padding."""
+  matrix, packed_mask, padding_values = full_wide_geometry(nv12, model_w, model_h)
+  mask = Tensor(packed_mask, device=WARP_DEV).realize()
+  padding = Tensor(padding_values, device=WARP_DEV).realize()
+  transform = Tensor(matrix, device=WARP_DEV).realize()
+  prepare = make_frame_prepare(nv12, model_w, model_h)
+
+  def full_wide_prepare(frame):
+    return mask.where(prepare(frame, transform), padding)
+  return full_wide_prepare
+
+
+def make_warp(nv12, model_w, model_h, frame_skip, peripheral_enabled=False):
   frame_prepare = make_frame_prepare(nv12, model_w, model_h)
+  peripheral_prepare = make_full_wide_prepare(nv12, model_w, model_h) if peripheral_enabled else None
 
   def warp(tfm, big_tfm, frame, big_frame):
     tfm = tfm.to(WARP_DEV)
@@ -178,7 +227,10 @@ def make_warp(nv12, model_w, model_h, frame_skip):
 
     warped_frame = frame_prepare(frame, tfm).unsqueeze(0)
     warped_big_frame = frame_prepare(big_frame, big_tfm).unsqueeze(0)
-    return Tensor.cat(warped_frame, warped_big_frame)
+    if peripheral_prepare is None:
+      return Tensor.cat(warped_frame, warped_big_frame)
+    peripheral_frame = peripheral_prepare(big_frame).unsqueeze(0)
+    return Tensor.cat(warped_frame, warped_big_frame, peripheral_frame)
 
   return warp
 
@@ -190,13 +242,18 @@ def make_run_policy(model_runner, model_metadata, frame_skip):
   input_casts = packed_input_casts(model_metadata)
   input_spec = spec_from_meta(model_metadata) if (model_metadata.get('cot_decode') or '').startswith('rh-cot-wire-') else None
 
-  def run_policy(warped, img_q, big_img_q, feat_q, desire_q, packed_npy_inputs):
+  peripheral_enabled = 'peripheral_img' in model_metadata['input_shapes']
+
+  def run(warped, img_q, big_img_q, feat_q, desire_q, packed_npy_inputs,
+          peripheral_img_q=None):
     packed_npy_inputs = packed_npy_inputs.to(Device.DEFAULT)
     warped = warped.to(Device.DEFAULT)
     Tensor.realize(packed_npy_inputs, warped)
 
     img = shift_and_sample(img_q, warped[0:1], sample_skip_fn)
     big_img = shift_and_sample(big_img_q, warped[1:2], sample_skip_fn)
+    peripheral_img = (shift_and_sample(peripheral_img_q, warped[2:3], sample_skip_fn)
+                      if peripheral_enabled else None)
 
     unpacked = {name: t.reshape(s) for (name, s), t in zip(npy_shapes.items(), packed_npy_inputs.split(npy_sizes), strict=True)}
     for name, dtype in input_casts.items():
@@ -211,6 +268,8 @@ def make_run_policy(model_runner, model_metadata, frame_skip):
       'desire_pulse': desire_buf,
       **unpacked,
     }
+    if peripheral_enabled:
+      inputs['peripheral_img'] = peripheral_img
     if input_spec is not None:
       inputs = {name: value.cast(input_spec[name][1]) for name, value in inputs.items()}
     outputs = model_runner(inputs)
@@ -218,6 +277,15 @@ def make_run_policy(model_runner, model_metadata, frame_skip):
     for name in model_metadata.get('packed_output_names', ()):
       out = out.cat(outputs[name].cast('float32').reshape(1, -1), dim=1)
     return out,
+
+  if peripheral_enabled:
+    def run_policy(warped, img_q, big_img_q, feat_q, desire_q, packed_npy_inputs,
+                   peripheral_img_q):
+      return run(warped, img_q, big_img_q, feat_q, desire_q, packed_npy_inputs,
+                 peripheral_img_q)
+  else:
+    def run_policy(warped, img_q, big_img_q, feat_q, desire_q, packed_npy_inputs):
+      return run(warped, img_q, big_img_q, feat_q, desire_q, packed_npy_inputs)
   return run_policy
 
 
@@ -339,11 +407,14 @@ def validate_supercombo_release(run_policy_jit, model_runner, model_metadata, fr
       value[:] = 0 if value.dtype.kind in ('i', 'u') else 0.0
 
   zero_inputs = {
-    'warped': Tensor(np.zeros((2, 6, *image_shape[2:]), dtype=np.uint8), device=Device.DEFAULT).realize(),
+    'warped': Tensor(np.zeros((3 if 'peripheral_img' in model_metadata['input_shapes'] else 2,
+                              6, *image_shape[2:]), dtype=np.uint8),
+                     device=Device.DEFAULT).realize(),
   }
 
-  direct_outs, = direct_fn(**{k: direct_queues[k] for k in POLICY_INPUTS}, **zero_inputs)
-  jit_outs, = run_policy_jit(**{k: jit_queues[k] for k in POLICY_INPUTS}, **zero_inputs)
+  names = policy_inputs(model_metadata['input_shapes'])
+  direct_outs, = direct_fn(**{k: direct_queues[k] for k in names}, **zero_inputs)
+  jit_outs, = run_policy_jit(**{k: jit_queues[k] for k in names}, **zero_inputs)
 
   direct_flat = direct_outs.numpy().astype(np.float32).reshape(-1)
   jit_flat = jit_outs.numpy().astype(np.float32).reshape(-1)
@@ -395,19 +466,34 @@ if __name__ == "__main__":
     'metadata': supercombo_metadata(build_metadata_record(model_path)),
     'frame_skip': args.frame_skip,
   }
+  peripheral_enabled = 'peripheral_img' in out['metadata']['input_shapes']
+  out['metadata']['runtime_jit_contract'] = {
+    'version': 1,
+    'warp_inputs': ['tfm', 'big_tfm', 'frame', 'big_frame'],
+    'warp_outputs': ['img', 'big_img'] + (['peripheral_img'] if peripheral_enabled else []),
+    'policy_inputs': ['warped', *policy_inputs(out['metadata']['input_shapes'])],
+    'physical_camera_buffers': ['img', 'big_img'],
+  }
+  out['metadata']['peripheral_mapping'] = (
+      'equal-scale pixel-center letterbox from big_frame; Y16 UV128 padding'
+      if peripheral_enabled else None)
 
   run_policy_jit = TinyJit(make_run_policy(model_runner, out['metadata'], args.frame_skip), prune=True)
 
   make_policy_queues = partial(make_input_queues, out['metadata']['input_shapes'], args.frame_skip)
-  make_random_model_inputs = partial(make_random_images, keys=['warped'], shape=(2, 6, *out['metadata']['input_shapes']['img'][2:]))
-  out['run_policy'] = compile_jit(run_policy_jit, make_random_model_inputs, POLICY_INPUTS,
+  make_random_model_inputs = partial(make_random_images, keys=['warped'],
+                                     shape=(3 if peripheral_enabled else 2, 6,
+                                            *out['metadata']['input_shapes']['img'][2:]))
+  out['run_policy'] = compile_jit(run_policy_jit, make_random_model_inputs,
+                                  policy_inputs(out['metadata']['input_shapes']),
                                   make_policy_queues)
   validate_supercombo_release(out['run_policy'], model_runner, out['metadata'], args.frame_skip, args.expected_device)
 
   for cam_w, cam_h in args.camera_resolutions:
     nv12 = NV12Frame(cam_w, cam_h, *get_nv12_info(cam_w, cam_h))
     make_random_warp_inputs = partial(make_random_images, keys=['frame', 'big_frame'], shape=nv12.size, device=WARP_DEV)
-    warp_enqueue = TinyJit(make_warp(nv12, model_w, model_h, args.frame_skip), prune=True)
+    warp_enqueue = TinyJit(make_warp(nv12, model_w, model_h, args.frame_skip,
+                                     peripheral_enabled), prune=True)
     make_warp_queues = partial(make_warp_input_queues, out['metadata']['input_shapes'], args.frame_skip)
     out[(cam_w,cam_h)] = compile_jit(warp_enqueue, make_random_warp_inputs, WARP_INPUTS, make_warp_queues)
     captured_devices = _captured_devices(out[(cam_w,cam_h)])

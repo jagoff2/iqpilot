@@ -1,0 +1,15 @@
+........................................................................ [ 46%]
+........................................................................ [ 92%]
+............                                                             [100%]
+156 passed in 21.66s
+{
+  "group": "nnff",
+  "exit_code": 0,
+  "loaded_staged_sources": {
+    "iqpilot.selfdrive.iqmodeld.config": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/iqmodeld/config.py",
+    "iqpilot.selfdrive.iqmodeld.parser": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/iqmodeld/parser.py",
+    "iqpilot.selfdrive.iqmodeld.models.split_model_constants": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/iqmodeld/models/split_model_constants.py",
+    "iqpilot.selfdrive.controls.lib.latcontrol_torque": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/controls/lib/latcontrol_torque.py",
+    "iqpilot.selfdrive.controls.lib.actuator_feedback": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/controls/lib/actuator_feedback.py"
+  }
+}

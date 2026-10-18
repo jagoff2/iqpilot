@@ -2,13 +2,15 @@
 from iqpilot._proprietary_loader import ProprietaryModuleMissing, load_private_module
 
 try:
-  load_private_module(__name__, "iqpilot_private.context.temporal_state")
+  # Keep this staged ABI7 contract from being replaced by an older private ABI6 module.
+  raise ProprietaryModuleMissing("peripheral-v1 uses its explicit temporal contract")
 except ProprietaryModuleMissing:
   import math
 
   import numpy as np
 
   DEFAULT_FRAME_SKIP = 4
+  VISION_INPUT_NAMES = ("img", "big_img", "peripheral_img")
 
   MODEL_INPUT_SPEC = {
     "img": ((1, 12, 128, 256), "uint8"),
@@ -20,7 +22,8 @@ except ProprietaryModuleMissing:
   }
 
   def extra_policy_inputs(input_shapes):
-    return [name for name in input_shapes if name not in MODEL_INPUT_SPEC]
+    return [name for name in input_shapes
+            if name not in MODEL_INPUT_SPEC and name not in VISION_INPUT_NAMES]
 
   def packed_policy_layout(input_shapes):
     desire = input_shapes["desire_pulse"]
@@ -39,7 +42,7 @@ except ProprietaryModuleMissing:
     if not shapes:
       return None
     declared = meta.get("input_dtypes", {})
-    return {name: (tuple(shape), np.dtype(declared.get(name, "uint8" if name in ("img", "big_img") else "float32")).name)
+    return {name: (tuple(shape), np.dtype(declared.get(name, "uint8" if name in VISION_INPUT_NAMES else "float32")).name)
             for name, shape in shapes.items()}
 
   def packed_input_casts(meta):
@@ -66,11 +69,15 @@ except ProprietaryModuleMissing:
       self.n_frames = img[1] // 6
       img_q_shape = (frame_skip * (self.n_frames - 1) + 1, 6, img[2], img[3])
       self._img_shape = img
+      if "peripheral_img" in spec and tuple(spec["peripheral_img"][0]) != tuple(img):
+        raise ValueError("peripheral_img and img shapes must match")
       self._fb_shape = fb
       self._dp_shape = dp
       feat_dim = math.prod(fb[2:])
       self.img_q = np.zeros(img_q_shape, dtype=np.uint8)
       self.big_img_q = np.zeros(img_q_shape, dtype=np.uint8)
+      self.peripheral_img_q = (np.zeros(img_q_shape, dtype=np.uint8)
+                               if "peripheral_img" in spec else None)
       self.feat_q = np.zeros((frame_skip * fb[1], fb[0], feat_dim), dtype=np.float32)
       self.desire_q = np.zeros((frame_skip * dp[1], dp[0], dp[2]), dtype=np.float32)
       self.prev_desire = np.zeros(dp[2], dtype=np.float32)
@@ -104,7 +111,7 @@ except ProprietaryModuleMissing:
         return np.broadcast_to(cur, (shape[1], shape[2])).reshape(shape).copy()
       return cur.reshape(shape)
 
-    def push_and_materialize(self, warped, desire_pulse, traffic_convention, action_t):
+    def push_and_materialize(self, warped, desire_pulse, traffic_convention, action_t, peripheral=None):
       fs = self.frame_skip
       cur = desire_pulse.astype(np.float32).copy()
       cur[0] = 0
@@ -112,10 +119,15 @@ except ProprietaryModuleMissing:
       self.prev_desire[:] = cur
       self._shift_append(self.img_q, warped[0])
       self._shift_append(self.big_img_q, warped[1])
+      if self.peripheral_img_q is not None:
+        value = warped[2] if peripheral is None and len(warped) > 2 else peripheral
+        if value is None:
+          raise ValueError("ABI7 requires a peripheral packed frame")
+        self._shift_append(self.peripheral_img_q, value)
       self._shift_append(self.desire_q, pulse.reshape(self._dp_shape[0], self._dp_shape[2]))
       self._shift_append(self.feat_q, self.prev_feat)
       dp = self._dp_shape
-      return {
+      out = {
         "img": np.ascontiguousarray(self.img_q[::fs]).reshape(self._img_shape),
         "big_img": np.ascontiguousarray(self.big_img_q[::fs]).reshape(self._img_shape),
         "features_buffer": np.ascontiguousarray(self.feat_q[::fs]).reshape(self._fb_shape),
@@ -123,18 +135,25 @@ except ProprietaryModuleMissing:
         "traffic_convention": self._materialize_traffic(traffic_convention),
         "action_t": self._materialize_action_t(action_t),
       }
+      if self.peripheral_img_q is not None:
+        out["peripheral_img"] = np.ascontiguousarray(
+            self.peripheral_img_q[::fs]).reshape(self._img_shape)
+      return out
 
     def note_hidden_state(self, model_output, hidden_slice):
       self.prev_feat[:] = model_output[hidden_slice].reshape(self.prev_feat.shape)
 
   class SplitTemporalState:
-    def __init__(self, frame_skip, img_shape, feature_shape, desire_shape, traffic_shape=(1, 2), action_shape=(1, 2)):
+    def __init__(self, frame_skip, img_shape, feature_shape, desire_shape,
+                 traffic_shape=(1, 2), action_shape=(1, 2), peripheral_shape=None):
       self.frame_skip = frame_skip
       self._img_shape = tuple(img_shape)
       self._fb_shape = tuple(feature_shape)
       self._dp_shape = tuple(desire_shape)
       self._traffic_shape = tuple(traffic_shape)
       self._action_shape = tuple(action_shape)
+      if peripheral_shape is not None and tuple(peripheral_shape) != tuple(img_shape):
+        raise ValueError("peripheral_img and img shapes must match")
       self.traffic_q = (np.zeros((frame_skip * self._traffic_shape[1], self._traffic_shape[2]), dtype=np.float32)
                         if len(self._traffic_shape) == 3 else None)
       self._traffic_primed = False
@@ -142,11 +161,13 @@ except ProprietaryModuleMissing:
       img_q_shape = (frame_skip * (n_frames - 1) + 1, 6, img_shape[2], img_shape[3])
       self.img_q = np.zeros(img_q_shape, dtype=np.uint8)
       self.big_img_q = np.zeros(img_q_shape, dtype=np.uint8)
+      self.peripheral_img_q = (np.zeros(img_q_shape, dtype=np.uint8)
+                               if peripheral_shape is not None else None)
       self.feat_q = np.zeros((frame_skip * (feature_shape[1] - 1) + 1, feature_shape[0], feature_shape[2]), dtype=np.float32)
       self.desire_q = np.zeros((frame_skip * desire_shape[1], desire_shape[0], desire_shape[2]), dtype=np.float32)
       self.prev_desire = np.zeros(desire_shape[2], dtype=np.float32)
 
-    def materialize_vision(self, warped, desire):
+    def materialize_vision(self, warped, desire, peripheral=None):
       fs = self.frame_skip
       cur = desire.astype(np.float32).copy()
       cur[0] = 0
@@ -154,11 +175,20 @@ except ProprietaryModuleMissing:
       self.prev_desire[:] = cur
       TemporalInputState._shift_append(self.img_q, warped[0])
       TemporalInputState._shift_append(self.big_img_q, warped[1])
+      if self.peripheral_img_q is not None:
+        value = warped[2] if peripheral is None and len(warped) > 2 else peripheral
+        if value is None:
+          raise ValueError("ABI7 requires a peripheral packed frame")
+        TemporalInputState._shift_append(self.peripheral_img_q, value)
       TemporalInputState._shift_append(self.desire_q, pulse.reshape(self._dp_shape[0], self._dp_shape[2]))
-      return {
+      out = {
         "img": np.ascontiguousarray(self.img_q[::fs]).reshape(self._img_shape),
         "big_img": np.ascontiguousarray(self.big_img_q[::fs]).reshape(self._img_shape),
       }
+      if self.peripheral_img_q is not None:
+        out["peripheral_img"] = np.ascontiguousarray(
+            self.peripheral_img_q[::fs]).reshape(self._img_shape)
+      return out
 
     def materialize_policy(self, vision_feature, traffic_convention, action_t=None):
       fs = self.frame_skip

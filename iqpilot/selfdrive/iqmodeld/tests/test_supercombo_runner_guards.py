@@ -85,6 +85,8 @@ def test_verify_artifact_file_deletes_stale_cached_pkl(tmp_path: Path):
 
 def test_validate_jit_names_accepts_current_runtime_contract():
   runner = TinygradSupercomboRunner.__new__(TinygradSupercomboRunner)
+  runner._ish = {name: shape for name, (shape, _) in MODEL_INPUT_SPEC.items()}
+  runner._meta = {}
   runner._pkl_path = "/tmp/does-not-matter.pkl"
   runner._expected_sha256 = ""
   runner._run_policy = _FakeJit(['warped', 'img_q', 'big_img_q', 'feat_q', 'desire_q', 'packed_npy_inputs'])
@@ -97,6 +99,8 @@ def test_validate_jit_names_accepts_current_runtime_contract():
 
 def test_validate_jit_names_raises_clear_error_for_contract_mismatch():
   runner = TinygradSupercomboRunner.__new__(TinygradSupercomboRunner)
+  runner._ish = {name: shape for name, (shape, _) in MODEL_INPUT_SPEC.items()}
+  runner._meta = {}
   runner._pkl_path = "/tmp/does-not-matter.pkl"
   runner._expected_sha256 = ""
   runner._run_policy = _FakeJit(['img', 'big_img', 'feat_q', 'desire_q', 'desire', 'traffic_convention', 'action_t'])

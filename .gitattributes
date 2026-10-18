@@ -1,5 +1,9 @@
 * text=auto eol=lf
 
+# Preserve exact bytes of hash-bound model payloads and release evidence.
+artifacts/local_models/*.json -text whitespace=cr-at-eol
+artifacts/release_consolidation_20261018/*.json -text whitespace=cr-at-eol
+
 # to move existing files into LFS:
 # git add --renormalize .
 iqpilot/selfdrive/assets/icons/iq/rotate-ccw.svg -filter -diff -merge -text

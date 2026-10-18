@@ -1,0 +1,9 @@
+.......................                                                  [100%]
+23 passed in 166.55s (0:02:46)
+{
+  "group": "monitoring",
+  "exit_code": 0,
+  "loaded_staged_sources": {
+    "iqpilot.selfdrive.monitoring.helpers": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/monitoring/helpers.py"
+  }
+}

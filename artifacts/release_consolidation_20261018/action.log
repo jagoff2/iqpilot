@@ -1,0 +1,26 @@
+.............................................................            [100%]
+61 passed in 15.63s
+{
+  "group": "action",
+  "exit_code": 0,
+  "loaded_staged_sources": {
+    "iqpilot.selfdrive.iqmodeld.config": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/iqmodeld/config.py",
+    "iqpilot.selfdrive.iqmodeld.messaging": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/iqmodeld/messaging.py",
+    "iqpilot.selfdrive.iqmodeld.daemon": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/iqmodeld/daemon.py",
+    "iqpilot.selfdrive.iqmodeld.camera": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/iqmodeld/camera.py",
+    "iqpilot.selfdrive.iqmodeld.parser": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/iqmodeld/parser.py",
+    "iqpilot.selfdrive.iqmodeld.drive_profile": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/iqmodeld/drive_profile.py",
+    "iqpilot.selfdrive.iqmodeld.model_context": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/iqmodeld/model_context.py",
+    "iqpilot.selfdrive.iqmodeld.feature_inputs": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/iqmodeld/feature_inputs.py",
+    "iqpilot.selfdrive.iqmodeld.driving_action": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/iqmodeld/driving_action.py",
+    "iqpilot.selfdrive.iqmodeld.cot_decode": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/iqmodeld/cot_decode.py",
+    "iqpilot.selfdrive.iqmodeld.speed_limit_input": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/iqmodeld/speed_limit_input.py",
+    "iqpilot.selfdrive.iqmodeld.metadata": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/iqmodeld/metadata.py",
+    "iqpilot.selfdrive.iqmodeld.models.iqc": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/iqmodeld/models/iqc.py",
+    "iqpilot.selfdrive.iqmodeld.models.combined_artifact": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/iqmodeld/models/combined_artifact.py",
+    "iqpilot.selfdrive.iqmodeld.models.helpers": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/iqmodeld/models/helpers.py",
+    "iqpilot.selfdrive.iqmodeld.models.inference_state": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/iqmodeld/models/inference_state.py",
+    "iqpilot.selfdrive.iqmodeld.models.split_model_constants": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/iqmodeld/models/split_model_constants.py",
+    "iqpilot.selfdrive.iqmodeld.models.runners.model_runner": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/iqmodeld/models/runners/model_runner.py"
+  }
+}

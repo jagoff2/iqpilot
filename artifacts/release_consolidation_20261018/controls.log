@@ -1,0 +1,20 @@
+........................................................................ [ 21%]
+........................................................................ [ 42%]
+........................................................................ [ 64%]
+........................................................................ [ 85%]
+.................................................                        [100%]
+337 passed in 156.67s (0:02:36)
+{
+  "group": "controls",
+  "exit_code": 0,
+  "loaded_staged_sources": {
+    "iqpilot.selfdrive.car.card": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/car/card.py",
+    "iqpilot.selfdrive.iqmodeld.config": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/iqmodeld/config.py",
+    "iqpilot.selfdrive.iqmodeld.parser": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/iqmodeld/parser.py",
+    "iqpilot.selfdrive.iqmodeld.models.inference_state": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/iqmodeld/models/inference_state.py",
+    "iqpilot.selfdrive.iqmodeld.models.split_model_constants": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/iqmodeld/models/split_model_constants.py",
+    "iqpilot.selfdrive.controls.tests.lateral_control_scenarios": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/controls/tests/lateral_control_scenarios.py",
+    "iqpilot.selfdrive.controls.lib.latcontrol_torque": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/controls/lib/latcontrol_torque.py",
+    "iqpilot.selfdrive.controls.lib.actuator_feedback": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/controls/lib/actuator_feedback.py"
+  }
+}

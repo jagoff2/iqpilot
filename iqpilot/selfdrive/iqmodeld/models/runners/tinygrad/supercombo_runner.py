@@ -81,6 +81,7 @@ class TinygradSupercomboRunner(TinygradSupercomboRuntime, ModelRunner):
 
         self._meta = self._m['metadata']
         self._ish = self._meta['input_shapes']
+        self._validate_input_contract()
         self._slices = {k: v for k, v in self._meta['output_slices'].items() if k != 'pad'}
         self._hidden_slice = self._meta['output_slices']['hidden_state']
         self._run_policy = self._m['run_policy']
@@ -96,6 +97,20 @@ class TinygradSupercomboRunner(TinygradSupercomboRuntime, ModelRunner):
         self._cam: tuple[int, int] | None = None
         self._prev_desire = np.zeros(self._ish['desire_pulse'][2], dtype=np.float32)
         self._blob_cache: dict[tuple[str, int], Any] = {}
+
+    def _validate_input_contract(self) -> None:
+        required = {'img', 'big_img', 'features_buffer', 'desire_pulse', 'traffic_convention'}
+        missing = sorted(required - set(self._ish))
+        if missing:
+            raise RuntimeError(f"supercombo metadata is missing required inputs: {missing}")
+        if 'peripheral_img' not in self._ish:
+            return
+        if (tuple(self._ish['peripheral_img']) != tuple(self._ish['img'])
+                or tuple(self._ish['peripheral_img']) != tuple(self._ish['big_img'])):
+            raise RuntimeError('peripheral_img, img, and big_img shapes must match')
+        dtype = self._meta.get('input_dtypes', {}).get('peripheral_img')
+        if dtype != 'uint8':
+            raise RuntimeError(f"peripheral_img dtype must be uint8, got {dtype!r}")
 
     def _verify_artifact_file(self) -> None:
         if not self._expected_sha256:
@@ -147,6 +162,18 @@ class TinygradSupercomboRunner(TinygradSupercomboRuntime, ModelRunner):
     def _validate_jit_names(self) -> None:
         expected_warp_names = ['big_frame', 'big_tfm', 'frame', 'tfm']
         expected_policy_names = ['big_img_q', 'desire_q', 'feat_q', 'img_q', 'packed_npy_inputs', 'warped']
+        if 'peripheral_img' in self._ish:
+            expected_policy_names.append('peripheral_img_q')
+            expected_policy_names.sort()
+
+        contract = self._meta.get('runtime_jit_contract')
+        if contract is not None:
+            expected_outputs = ['img', 'big_img'] + (['peripheral_img'] if 'peripheral_img' in self._ish else [])
+            if (contract.get('warp_inputs') != ['tfm', 'big_tfm', 'frame', 'big_frame']
+                    or contract.get('warp_outputs') != expected_outputs
+                    or sorted(contract.get('policy_inputs', [])) != expected_policy_names
+                    or contract.get('physical_camera_buffers') != ['img', 'big_img']):
+                raise RuntimeError(f"supercombo runtime_jit_contract differs: {contract}")
 
         mismatches: list[str] = []
 
@@ -231,7 +258,12 @@ class TinygradSupercomboRunner(TinygradSupercomboRuntime, ModelRunner):
 
     @property
     def vision_input_names(self) -> list[str]:
+        # Physical camera buffers. peripheral_img is derived from big_img by the warp JIT.
         return ['img', 'big_img']
+
+    @property
+    def model_vision_input_names(self) -> list[str]:
+        return ['img', 'big_img'] + (['peripheral_img'] if 'peripheral_img' in self._ish else [])
 
     @property
     def input_shapes(self) -> ShapeDict:

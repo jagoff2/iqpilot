@@ -1,0 +1,25 @@
+........................................................................ [ 38%]
+........................................................................ [ 76%]
+............................................                             [100%]
+188 passed in 47.42s
+{
+  "group": "inherited",
+  "exit_code": 0,
+  "loaded_staged_sources": {
+    "iqpilot.ui.layouts.settings.iq_panels": "/data/release-consolidation-tests-20261018/payload/iqpilot/ui/layouts/settings/iq_panels.py",
+    "iqpilot.selfdrive.iqmodeld.config": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/iqmodeld/config.py",
+    "iqpilot.selfdrive.iqmodeld.parser": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/iqmodeld/parser.py",
+    "iqpilot.selfdrive.iqmodeld.drive_profile": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/iqmodeld/drive_profile.py",
+    "iqpilot.selfdrive.iqmodeld.full_frame_candidate": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/iqmodeld/full_frame_candidate.py",
+    "iqpilot.selfdrive.iqmodeld.model_cache": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/iqmodeld/model_cache.py",
+    "iqpilot.selfdrive.iqmodeld.cd210_centerline_candidates_v2": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/iqmodeld/cd210_centerline_candidates_v2.py",
+    "iqpilot.selfdrive.iqmodeld.speed_limit_input": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/iqmodeld/speed_limit_input.py",
+    "iqpilot.selfdrive.iqmodeld.models.iqc": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/iqmodeld/models/iqc.py",
+    "iqpilot.selfdrive.iqmodeld.models.combined_artifact": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/iqmodeld/models/combined_artifact.py",
+    "iqpilot.selfdrive.iqmodeld.models.helpers": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/iqmodeld/models/helpers.py",
+    "iqpilot.selfdrive.iqmodeld.models.split_model_constants": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/iqmodeld/models/split_model_constants.py",
+    "iqpilot.selfdrive.iqmodeld.models.runners.model_runner": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/iqmodeld/models/runners/model_runner.py",
+    "iqpilot.selfdrive.controls.lib.latcontrol_torque": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/controls/lib/latcontrol_torque.py",
+    "iqpilot.selfdrive.controls.lib.actuator_feedback": "/data/release-consolidation-tests-20261018/payload/iqpilot/selfdrive/controls/lib/actuator_feedback.py"
+  }
+}

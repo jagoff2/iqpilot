@@ -1,0 +1,117 @@
+{
+  "status": "qualified",
+  "recorded_utc": "2026-10-18T00:48:17.682812+00:00",
+  "authorized_by": "Root task coordinator after completed device tests, final continuous replay, and independent integral-history follow-up",
+  "scope": "Offroad installation of the exact five-file payload implementing four software fixes; not physical trajectory or lane-safety qualification.",
+  "reason": "313 device tests pass. Final continuous replay covers 220164 control ticks and 223232 candidate CAN messages with zero added software-safety rejections or trace gaps. The integral/saturation follow-up found no additional identifiable implementation defect; fixed-motion replay tradeoffs remain documented.",
+  "fixes": [
+    "Exact originating request/applied-output association",
+    "Independent reference history for derivative calculation",
+    "Bounded friction contribution",
+    "Directional integral recovery under known actuator limitation"
+  ],
+  "runtime_sha256": {
+    "artifacts/package_runtime/iqdbc/car/car.capnp": "dd0631a021337c59f03704623dd655c3ec0241958efdab499d65aaab48f42f66",
+    "iqpilot/selfdrive/car/card.py": "f0a633d6a44cf8de57c5bff81fa748a22dbb6eba90eeb0bba612269410b01469",
+    "iqpilot/selfdrive/controls/controlsd.py": "4a10c240ac83a595a8e8339106335542e7703da61dcfd90da2d3c7870ff2fec5",
+    "iqpilot/selfdrive/controls/lib/actuator_feedback.py": "c055fe831b61304cae3294204507217e711d694c8f2b4eba404adcba9b8be355",
+    "iqpilot/selfdrive/controls/lib/latcontrol_torque.py": "7969128a8f82a8710db0c75b25ff870de49a31e812ed9765f4552f41e89983ac"
+  },
+  "evidence": [
+    {
+      "source_path": "test-directional-results.txt",
+      "package_path": "qualification/test-directional-results.txt",
+      "sha256": "efdf779e9b9cb24f65a2a7a6189b63e44ed401acaa901747f20669f25dfb42d2",
+      "bytes": 2774
+    },
+    {
+      "source_path": "test-manifest.json",
+      "package_path": "qualification/test-manifest.json",
+      "sha256": "a27cdc567841fce48bb999082d1b76de71a3948bdef77bfb6aa43d1783cd45ef",
+      "bytes": 2827
+    },
+    {
+      "source_path": "replay/directional-feedback/REPORT.md",
+      "package_path": "qualification/replay-REPORT.md",
+      "sha256": "76861e8f747b2a63946146f86291d3708306240401d59352289f1570778eb10c",
+      "bytes": 6648
+    },
+    {
+      "source_path": "replay/directional-feedback/manifest.json",
+      "package_path": "qualification/replay-manifest.json",
+      "sha256": "a6df34835a8d9fee67f2112e43f4f27568913a5b178b675f79253f417b004b05",
+      "bytes": 37059
+    },
+    {
+      "source_path": "review/INTEGRAL-BIAS-FOLLOWUP.md",
+      "package_path": "qualification/INTEGRAL-BIAS-FOLLOWUP.md",
+      "sha256": "f0e0d2da99bf631dc0b6764327692b8d05e2384f45b9d100b48003b3afbaa927",
+      "bytes": 6081
+    },
+    {
+      "source_path": "deployment/first-attempt-transaction.json",
+      "package_path": "qualification/first-attempt-transaction.json",
+      "sha256": "e57d54e3d909eabf7d43c0b4b46f911bb589b73686e420fcd7ccd9419da46132",
+      "bytes": 794
+    },
+    {
+      "source_path": "deployment/first-attempt-recovery-validation.txt",
+      "package_path": "qualification/first-attempt-recovery-validation.txt",
+      "sha256": "a005afcf01f894461db44227d6597ab6c95ddff348351007ab9ab641ae398959",
+      "bytes": 7937
+    },
+    {
+      "source_path": "deployment/installer-device-tests.txt",
+      "package_path": "qualification/installer-device-tests.txt",
+      "sha256": "6acb060ec9f37660554b67215aa36ca145ee7ae5b59e65f3a9ebf925927768c8",
+      "bytes": 101
+    },
+    {
+      "source_path": "deployment/STARTUP-FOLLOWUP.md",
+      "package_path": "qualification/STARTUP-FOLLOWUP.md",
+      "sha256": "c399e941d66a33d675622e682666eb97ae15e508a2cf3e88a7dae4ef256bdb37",
+      "bytes": 3912
+    },
+    {
+      "source_path": "deployment/second-attempt-transaction.json",
+      "package_path": "qualification/second-attempt-transaction.json",
+      "sha256": "82b30aed5c7d0f3fa2e636b54d5876f4c5b07ff64238265c08acbfae5fd5c729",
+      "bytes": 1691
+    },
+    {
+      "source_path": "deployment/second-attempt-recovery-validation.txt",
+      "package_path": "qualification/second-attempt-recovery-validation.txt",
+      "sha256": "e40d12651d27cea24840014cdd0a3bcd2179158948eae0d900b4022756d1dcee",
+      "bytes": 7980
+    }
+  ],
+  "results": {
+    "device_tests_passed": 313,
+    "continuous_replay_control_ticks": 220164,
+    "candidate_can_messages": 223232,
+    "added_software_safety_rejections": 0,
+    "trace_gaps": 0,
+    "unchanged_route_end_main_off_rejections": 10,
+    "finite_commands": true,
+    "normalized_command_bound": 1.0,
+    "can_command_bound": 400
+  },
+  "limitations": [
+    "Recorded motion is fixed and cannot respond to earlier candidate actuation; replay cannot establish a repaired physical path or lane clearance.",
+    "Saturation changes and four new inward-saturated E3 samples remain a documented tradeoff, explained by accumulated recorded tracking error after false freezes were removed; no further code defect was identified.",
+    "D6 and E3 baseline command replay is exact; DA retains documented NNFF/asynchronous residuals.",
+    "Replay uses recorded sendcan emission to approximate the unlogged actual apply timestamp and does not reproduce live socket health.",
+    "Software-safety acceptance does not validate EPS calibration or physical lane safety; runtime preflight and postrestart checks remain required."
+  ],
+  "parameter_writes": [],
+  "installation_performed_by_qualification": false,
+  "installer_revision": {
+    "reason": "Second attempt exposed transient unknown startup flags: raw IsOnroad=0 while IsOffroad was absent. Runtime files were restored; root recovered the original service and verified it healthy. Final readiness waits through unknown startup state but requires confirmed raw offroad flags plus healthy managerState, and rejects explicit onroad immediately. Strict confirmed-offroad guards before mutations remain unchanged.",
+    "device_installer_tests_passed": 30,
+    "runtime_payload_changed": false,
+    "install_py_sha256": "1271f564c7516b44a9543dcfd18d4e8881348bffee0529228484bd2522af0cdb",
+    "validate_runtime_py_sha256": "1685180984ec124b849b5ae2ceffdb7f2496abd1c0cc00fc82045fe16471df39",
+    "first_attempt_archive_sha256": "e19107192c1efe87cc07f93eeabb5d3406a178e1ee363cc07f21d8e2fc3e5ac9",
+    "second_attempt_archive_sha256": "cdd29f3a454c8ebc8bf37ed1a2d992b1cc3b34a71f9f4959850279e1d5edc222"
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "action": [
+    "iqpilot/selfdrive/iqmodeld/tests/test_action_provenance.py",
+    "iqpilot/selfdrive/iqmodeld/tests/test_action_dispatch.py",
+    "iqpilot/selfdrive/controls/lib/tests/test_curvature_lookahead.py"
+  ],
+  "inherited": [
+    "iqpilot/selfdrive/controls/lib/tests/test_spatial_heading.py",
+    "iqpilot/selfdrive/controls/tests/test_lat_jerk_lowpass.py",
+    "iqpilot/common/tests/test_nnff_params.py",
+    "iqpilot/common/tests/test_turn_guard_settings.py",
+    "iqpilot/selfdrive/ui/tests/test_hkg_feedback_settings.py",
+    "iqpilot/selfdrive/ui/tests/test_nnff_big_settings.py",
+    "iqpilot/selfdrive/ui/tests/test_nnff_settings.py",
+    "iqpilot/selfdrive/ui/tests/test_turn_guard_settings.py"
+  ],
+  "controls": [
+    "iqpilot/selfdrive/controls/tests/test_actuator_feedback.py",
+    "iqpilot/selfdrive/controls/tests/test_actuator_feedback_integration.py",
+    "iqpilot/selfdrive/controls/tests/test_torque_friction.py",
+    "iqpilot/selfdrive/controls/tests/test_lateral_low_speed.py",
+    "iqpilot/selfdrive/controls/tests/test_turn_guards.py",
+    "iqpilot/selfdrive/controls/tests/test_standard_unwind.py",
+    "iqpilot/selfdrive/controls/tests/test_hkg_reduced_torque_feedback.py",
+    "iqpilot/selfdrive/controls/tests/test_latcontrol_torque_buffer.py",
+    "iqpilot/selfdrive/controls/tests/test_invalid_lateral_action.py",
+    "iqpilot/selfdrive/controls/tests/test_lateral_action_selection.py",
+    "iqpilot/selfdrive/controls/tests/test_nnff_controls.py"
+  ],
+  "models": [
+    "iqpilot/selfdrive/iqmodeld/tests/test_cd210_centerline_candidates.py",
+    "iqpilot/selfdrive/iqmodeld/tests/test_full_frame_candidate.py",
+    "iqpilot/selfdrive/iqmodeld/tests/test_local_model_picker.py",
+    "iqpilot/selfdrive/iqmodeld/tests/test_peripheral_runtime.py",
+    "iqpilot/selfdrive/iqmodeld/tests/test_standard_spatial_action.py",
+    "iqpilot/selfdrive/iqmodeld/tests/test_supercombo_runner_guards.py",
+    "iqpilot/selfdrive/iqmodeld/tests/test_compile_supercombo_guards.py",
+    "iqpilot/selfdrive/iqmodeld/tests/test_temporal_replay.py",
+    "iqpilot/selfdrive/iqmodeld/tests/test_memory_carry.py",
+    "iqpilot/selfdrive/iqmodeld/tests/test_split_input_state.py",
+    "iqpilot/selfdrive/iqmodeld/tests/test_default_model_fallback.py"
+  ],
+  "ui": [
+    "iqpilot/ui/tests/test_big_model_picker.py",
+    "iqpilot/ui/tests/test_backup_model_path.py",
+    "iqpilot/selfdrive/ui/tests/test_offline_model_selection.py"
+  ],
+  "monitoring": [
+    "iqpilot/selfdrive/monitoring/test_monitoring.py"
+  ],
+  "nnff": [
+    "iqpilot/selfdrive/controls/lib/neural_network_feed_forward/tests/test_locator.py",
+    "iqpilot/selfdrive/controls/lib/neural_network_feed_forward/tests/test_network.py",
+    "iqpilot/selfdrive/controls/lib/neural_network_feed_forward/tests/test_nnff_assembly.py"
+  ]
+}

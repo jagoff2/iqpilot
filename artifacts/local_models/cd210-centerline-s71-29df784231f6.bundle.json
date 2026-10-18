@@ -1,0 +1,78 @@
+{
+  "displayName": "CD210 Centerline s71 (29df7842)",
+  "environment": "development",
+  "generation": 12,
+  "index": 65071,
+  "internalName": "CD210 Centerline s71",
+  "is20hz": true,
+  "minimumSelectorVersion": 14,
+  "models": [
+    {
+      "artifact": {
+        "downloadUri": {
+          "sha256": "5b8a48cb0f4c034e4dcce46efe6900f9661f0d543357d7ad6ada9d84afdfbeaa",
+          "uri": "file:///data/media/0/models/driving_policy_cd210_centerline_s71_29df784231f6_fp32_tinygrad.pkl"
+        },
+        "fileName": "driving_policy_cd210_centerline_s71_29df784231f6_fp32_tinygrad.pkl",
+        "downloadProgress": {
+          "status": "cached",
+          "progress": 100
+        }
+      },
+      "metadata": {
+        "downloadUri": {
+          "sha256": "42fe1754c9fff32729040efbe2b11bb54b584a0ee5353513999a0f4c5a85784c",
+          "uri": "file:///data/media/0/models/driving_policy_cd210_centerline_s71_29df784231f6_fp32_metadata.pkl"
+        },
+        "fileName": "driving_policy_cd210_centerline_s71_29df784231f6_fp32_metadata.pkl",
+        "downloadProgress": {
+          "status": "cached",
+          "progress": 100
+        }
+      },
+      "type": "policy"
+    },
+    {
+      "artifact": {
+        "downloadUri": {
+          "sha256": "41662187f8f92bf45bb7ff87f8e42250f16afec844d5c5e1e258c101c3787da6",
+          "uri": "file:///data/media/0/models/driving_vision_cd210_centerline_s71_29df784231f6_fp32_tinygrad.pkl"
+        },
+        "fileName": "driving_vision_cd210_centerline_s71_29df784231f6_fp32_tinygrad.pkl",
+        "downloadProgress": {
+          "status": "cached",
+          "progress": 100
+        }
+      },
+      "metadata": {
+        "downloadUri": {
+          "sha256": "b0ec0a4ad9b29142152ab87a3b9014e740a2c829abc04b04b923d5deadb88c0f",
+          "uri": "file:///data/media/0/models/driving_vision_cd210_centerline_s71_29df784231f6_fp32_metadata.pkl"
+        },
+        "fileName": "driving_vision_cd210_centerline_s71_29df784231f6_fp32_metadata.pkl",
+        "downloadProgress": {
+          "status": "cached",
+          "progress": 100
+        }
+      },
+      "type": "vision"
+    }
+  ],
+  "overrides": [
+    {
+      "key": "folder",
+      "value": "Experimental"
+    },
+    {
+      "key": "lat",
+      "value": ".0"
+    },
+    {
+      "key": "long",
+      "value": ".3"
+    }
+  ],
+  "ref": "cd210-centerline-s71-29df784231f6",
+  "runner": "tinygrad",
+  "status": "cached"
+}

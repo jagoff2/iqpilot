@@ -4,6 +4,7 @@ Copyright © IQ.Lvbs, apart of Project Teal Lvbs, All Rights Reserved, licensed 
 IQ.Pilot settings panels.
 """
 import datetime
+import html
 import os
 import re
 import threading
@@ -38,6 +39,20 @@ from iqpilot.selfdrive.iqmodeld.drive_profile import (
 )
 from iqpilot.selfdrive.iqmodeld.models.helpers import get_cached_model_bundles, get_selected_model_name, is_default_bundle, select_default_model
 from iqpilot.selfdrive.iqmodeld.models.runners.model_runner import CUSTOM_MODEL_PATH
+from iqpilot.selfdrive.iqmodeld.cd210_centerline_candidates_v2 import (
+  candidates as centerline_candidates,
+  is_candidate_ref as is_centerline_candidate_ref,
+  select_candidate as select_centerline_candidate,
+  selected_ref as selected_centerline_ref,
+)
+from iqpilot.selfdrive.iqmodeld.full_frame_candidate import (
+  CANDIDATE_REF,
+  DISPLAY_NAME as FULL_FRAME_CANDIDATE_NAME,
+  candidate_ready,
+  candidate_status,
+  is_candidate_selected,
+  set_candidate_enabled,
+)
 from iqpilot.selfdrive.ui.layouts.settings import settings as OP
 from iqpilot.selfdrive.ui.layouts.settings.developer import DeveloperLayout
 from iqpilot.selfdrive.ui.layouts.settings.device import DeviceLayout
@@ -638,6 +653,18 @@ _DOWNLOAD_INDEX_KEY = "ModelManager_DownloadIndex"
 _RUNNER_CACHE_KEY = "ModelRunnerTypeCache"
 MODEL_READY_COLOR = rl.Color(16, 185, 169, 255)
 
+
+def _is_c3x() -> bool:
+  return HARDWARE.get_device_type() == "tizi"
+
+
+def _full_frame_candidate_status_label() -> str:
+  return str(candidate_status(ui_state.params) or "pending").replace('_', ' ')
+
+
+def _selected_model_name() -> str:
+  return FULL_FRAME_CANDIDATE_NAME if is_candidate_selected(ui_state.params) else get_selected_model_name(ui_state.params)
+
 def _big_model_options() -> list[tuple[str, str]]:
   try:
     from iqpilot.selfdrive.iqmodeld.emac_model_meta import big_models
@@ -739,6 +766,15 @@ class ModelsLayout(Widget):
       callback=self._handle_current_model_clicked
     )
 
+    self.full_frame_candidate_item = toggle_item_iq(
+      lambda: tr(FULL_FRAME_CANDIDATE_NAME),
+      self._full_frame_candidate_description,
+      initial_state=is_candidate_selected(ui_state.params),
+      callback=self._on_full_frame_candidate_toggled,
+      enabled=self._full_frame_candidate_toggle_enabled,
+    )
+    self.full_frame_candidate_item.set_visible(_is_c3x())
+
     self.big_model_item = button_item(
       lambda: tr("Big Model"),
       lambda: tr("CHANGE"),
@@ -783,7 +819,8 @@ class ModelsLayout(Widget):
 
     self.cancel_download_item = button_item(tr("Stop Download"), tr("Cancel"), "", self._cancel_model_request)
 
-    self.items = [self.current_model_item, self.big_model_item, self.small_on_mac_item,
+    self.items = [self.current_model_item, self.full_frame_candidate_item,
+                  self.big_model_item, self.small_on_mac_item,
                   self.drive_profile_item, self.desired_arrival_item,
                   self.cancel_download_item, self.supercombo_label, self.vision_label,
                   self.policy_label, self.clear_cache_item]
@@ -838,7 +875,7 @@ class ModelsLayout(Widget):
 
   def _redownload_target_index(self) -> int | None:
     target = self._redownload_target_bundle()
-    if not target:
+    if not target or is_centerline_candidate_ref(target.ref):
       return None
     try:
       return int(target.index)
@@ -950,17 +987,76 @@ class ModelsLayout(Widget):
     msg = tr("The selected model changed. We suggest resetting calibration. Would you like to do that now?")
     gui_app.set_modal_overlay(ConfirmDialog(msg, tr("Reset Calibration")), callback=_callback)
 
+  @staticmethod
+  def _full_frame_candidate_description() -> str:
+    status = _full_frame_candidate_status_label()
+    return tr("Local full-frame development model. Select only while offroad.") + f" {tr('Status')}: {status}."
+
+  @staticmethod
+  def _full_frame_candidate_toggle_enabled() -> bool:
+    return bool(_is_c3x() and ui_state.is_offroad()
+                and (candidate_ready() or is_candidate_selected(ui_state.params)))
+
+  def _show_full_frame_candidate_error(self, error: Exception) -> None:
+    status = _full_frame_candidate_status_label()
+    text = (f"<b>{html.escape(tr(FULL_FRAME_CANDIDATE_NAME))}</b><br><br>"
+            f"{html.escape(tr('The development model was not activated.'))}<br>"
+            f"{html.escape(tr('Status'))}: {html.escape(str(status))}<br>"
+            f"{html.escape(str(error))}")
+    gui_app.set_modal_overlay(NoticeModal(text=text))
+
+  def _set_full_frame_candidate(self, enabled: bool, *, show_error: bool = True) -> bool:
+    if not _is_c3x() or not ui_state.is_offroad():
+      self.full_frame_candidate_item.action_item.set_state(is_candidate_selected(ui_state.params))
+      return False
+    try:
+      set_candidate_enabled(ui_state.params, enabled, offroad=True)
+    except RuntimeError as error:
+      self.full_frame_candidate_item.action_item.set_state(is_candidate_selected(ui_state.params))
+      if show_error:
+        self._show_full_frame_candidate_error(error)
+      return False
+    self.full_frame_candidate_item.action_item.set_state(is_candidate_selected(ui_state.params))
+    self.current_model_item.action_item.set_value(tr(_selected_model_name()))
+    return True
+
+  def _on_full_frame_candidate_toggled(self, enabled: bool) -> None:
+    changed = self._set_full_frame_candidate(bool(enabled))
+    if changed:
+      self._show_reset_params_dialog()
+
   def _on_model_selected(self, result):
     if result != DialogResult.CONFIRM:
       return
     selected_ref = self.model_dialog.selection_ref
-    if selected_ref == "Default":
+    if not ui_state.is_offroad():
+      self.model_dialog = None
+      return
+    if is_centerline_candidate_ref(selected_ref):
+      if _is_c3x():
+        try:
+          selected = select_centerline_candidate(ui_state.params, offroad=ui_state.is_offroad(), ref=selected_ref)
+        except RuntimeError as error:
+          gui_app.set_modal_overlay(NoticeModal(text=html.escape(str(error))))
+        else:
+          self.full_frame_candidate_item.action_item.set_state(False)
+          self.current_model_item.action_item.set_value(tr(selected['displayName']))
+          self._show_reset_params_dialog()
+    elif selected_ref == CANDIDATE_REF:
+      if _is_c3x() and self._set_full_frame_candidate(True):
+        self._show_reset_params_dialog()
+    elif selected_ref == "Default":
       active = self.model_manager.activeBundle if self.model_manager else None
       had_custom_model = bool(active and active.ref and not is_default_bundle(active))
+      if is_candidate_selected(ui_state.params):
+        self._set_full_frame_candidate(False, show_error=False)
       select_default_model(ui_state.params)
       if had_custom_model:
         self._show_reset_params_dialog()
     elif selected_bundle := next((bundle for bundle in self.model_manager.availableBundles if bundle.ref == selected_ref), None):
+      if is_candidate_selected(ui_state.params) and not self._set_full_frame_candidate(False):
+        self.model_dialog = None
+        return
       ui_state.params.put(_DOWNLOAD_INDEX_KEY, selected_bundle.index)
       if self.model_manager.activeBundle and selected_bundle.generation != self.model_manager.activeBundle.generation:
         self._show_reset_params_dialog()
@@ -983,17 +1079,34 @@ class ModelsLayout(Widget):
     world_models = [bundle for bundle in bundles if cutoff is None or bundle.index > cutoff]
     legacy_models = [bundle for bundle in bundles if cutoff is not None and bundle.index <= cutoff]
 
-    return [
+    groups = [
       PickerGroup("", [PickerItem("Default", {'display_name': tr("Default (CD210)"), 'short_name': "Default"})]),
       PickerGroup(tr("World Models"), [self._bundle_to_node(bundle) for bundle in world_models]),
       PickerGroup(tr("Legacy Models"), [self._bundle_to_node(bundle) for bundle in legacy_models]),
     ]
+    if _is_c3x():
+      status = _full_frame_candidate_status_label()
+      groups.insert(1, PickerGroup(tr("Experimental"), [
+        *[PickerItem(item['ref'], {
+          'display_name': tr(item['display_name']),
+          'short_name': tr(item['short_name']),
+        }) for item in centerline_candidates()],
+        PickerItem(CANDIDATE_REF, {
+          'display_name': tr(FULL_FRAME_CANDIDATE_NAME),
+          'short_name': status,
+          'detail_text': status,
+        }),
+      ]))
+    return groups
 
   def _handle_current_model_clicked(self):
     _request_full_model_refresh()
     folders_list = self._get_folders()
 
-    active_ref = self.model_manager.activeBundle.ref if self._has_active_bundle_param() and self.model_manager.activeBundle else "Default"
+    active_ref = (selected_centerline_ref(ui_state.params)
+                  or (CANDIDATE_REF if is_candidate_selected(ui_state.params)
+                  else self.model_manager.activeBundle.ref
+                  if self._has_active_bundle_param() and self.model_manager.activeBundle else "Default"))
     self.model_dialog = PickerDialog(tr("Choose a Model"), folders_list, active_ref, "",
                                      get_folders_fn=self._get_folders, on_exit=self._on_model_selected,
                                      show_leaf_accent=False, header_action_text=lambda: tr("Redownload Model"),
@@ -1090,6 +1203,8 @@ class ModelsLayout(Widget):
     if not self._private_ui_attached:
       self._private_ui_attached = optional_private_ui.attach(self._scroller)
     self._handle_bundle_download_progress()
+    self.full_frame_candidate_item.action_item.set_state(is_candidate_selected(ui_state.params))
+    self.full_frame_candidate_item.set_description(self._full_frame_candidate_description())
     now = time.monotonic()
     if now - self._last_drive_profile_check_t > 1.0:
       self._last_drive_profile_check_t = now
@@ -1101,7 +1216,7 @@ class ModelsLayout(Widget):
     )
     self.desired_arrival_item.set_visible(drive_profile_name(ui_state.params) == "eta")
     self.desired_arrival_item.action_item.set_enabled(self._drive_profile_supported)
-    self.current_model_item.action_item.set_value(tr(get_selected_model_name(ui_state.params)))
+    self.current_model_item.action_item.set_value(tr(_selected_model_name()))
     if not ui_state.is_offroad():
       self.current_model_item.action_item.set_enabled(False)
       self.current_model_item.set_description(tr("Reachable only with the car switched off or Always Offroad turned on."))

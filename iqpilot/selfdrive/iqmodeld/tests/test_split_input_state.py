@@ -46,7 +46,14 @@ class _StubRunner:
 
 
 @pytest.fixture(scope="module")
-def reference():
+def cpu_reference():
+  from tinygrad.helpers import Context
+  with Context(DEV="CPU"):
+    yield
+
+
+@pytest.fixture(scope="module")
+def reference(cpu_reference):
   from tinygrad import Tensor
   from iqpilot.selfdrive.iqmodeld.tools.compile_split_runtime import _role_executor
 

@@ -1,0 +1,148 @@
+{
+  "backend": "QCOM",
+  "bundle": {
+    "displayName": "CD210 Centerline s71",
+    "environment": "development",
+    "generation": 12,
+    "index": 56,
+    "internalName": "cd210-centerline-s71-29df784231f6",
+    "is20hz": true,
+    "minimumSelectorVersion": 14,
+    "models": [
+      {
+        "artifact": {
+          "downloadUri": {
+            "sha256": "",
+            "uri": "file:///data/media/0/models/driving_policy_cd210_centerline_s71_29df784231f6_fp32_tinygrad.pkl"
+          },
+          "fileName": "driving_policy_cd210_centerline_s71_29df784231f6_fp32_tinygrad.pkl"
+        },
+        "metadata": {
+          "downloadUri": {
+            "sha256": "",
+            "uri": "file:///data/media/0/models/driving_policy_cd210_centerline_s71_29df784231f6_fp32_metadata.pkl"
+          },
+          "fileName": "driving_policy_cd210_centerline_s71_29df784231f6_fp32_metadata.pkl"
+        },
+        "type": "policy"
+      },
+      {
+        "artifact": {
+          "downloadUri": {
+            "sha256": "",
+            "uri": "file:///data/media/0/models/driving_vision_cd210_centerline_s71_29df784231f6_fp32_tinygrad.pkl"
+          },
+          "fileName": "driving_vision_cd210_centerline_s71_29df784231f6_fp32_tinygrad.pkl"
+        },
+        "metadata": {
+          "downloadUri": {
+            "sha256": "",
+            "uri": "file:///data/media/0/models/driving_vision_cd210_centerline_s71_29df784231f6_fp32_metadata.pkl"
+          },
+          "fileName": "driving_vision_cd210_centerline_s71_29df784231f6_fp32_metadata.pkl"
+        },
+        "type": "vision"
+      }
+    ],
+    "overrides": [
+      {
+        "key": "folder",
+        "value": "Comma Models"
+      },
+      {
+        "key": "lat",
+        "value": ".0"
+      },
+      {
+        "key": "long",
+        "value": ".3"
+      }
+    ],
+    "ref": "cd210-centerline-s71-29df784231f6",
+    "runner": "tinygrad",
+    "status": "notDownloading"
+  },
+  "compiler_float16": 0,
+  "device": "c3x",
+  "files": {
+    "device_build.py": "366d7f672fd0423eb0c7b61105eaf5266a13b37bcd5a83368fe76d303aa87bce",
+    "driving_policy.onnx": "b466c4544ff55f36920de735df9b059f8e74cfd926477217f161cba8b1a45e8e",
+    "driving_policy_cd210_centerline_s71_29df784231f6_fp32_metadata.pkl": "42fe1754c9fff32729040efbe2b11bb54b584a0ee5353513999a0f4c5a85784c",
+    "driving_vision.onnx": "5145eb6a70c4fc6368d372a13c9242c5b90b554dd5576c1df59baa1023226e76",
+    "driving_vision_cd210_centerline_s71_29df784231f6_fp32_metadata.pkl": "b0ec0a4ad9b29142152ab87a3b9014e740a2c829abc04b04b923d5deadb88c0f",
+    "verification.npz": "ae238a091ddc5f0e9f83482ce08efb3b8e378ed42d815507951e43686d42beaa"
+  },
+  "onnx_verification": {
+    "frames": 120,
+    "manifest": "G:\\lane-centering-dataset-v1\\accepted\\auto-0001d3876348e5908c34-validation-0\\manifest.json",
+    "manifest_sha256": "a4a0797c38d3f66a1bd96a2d9c83be2fcb48dd6e61b2e2f4ea6c6cf93856d977",
+    "parity": [
+      {
+        "max_abs": 4.57763671875e-05,
+        "passed": true,
+        "role": "vision",
+        "tick": 0
+      },
+      {
+        "max_abs": 0.0002593994140625,
+        "passed": true,
+        "role": "policy",
+        "tick": 0
+      },
+      {
+        "max_abs": 0.00048828125,
+        "passed": true,
+        "role": "vision",
+        "tick": 59
+      },
+      {
+        "max_abs": 2.6702880859375e-05,
+        "passed": true,
+        "role": "policy",
+        "tick": 59
+      },
+      {
+        "max_abs": 9.918212890625e-05,
+        "passed": true,
+        "role": "vision",
+        "tick": 119
+      },
+      {
+        "max_abs": 1.9073486328125e-05,
+        "passed": true,
+        "role": "policy",
+        "tick": 119
+      }
+    ],
+    "passed": true,
+    "precision": "exact FP32 checkpoint tensors and recurrence"
+  },
+  "parent_payload_sha256": "e0fe796abf59f7fe20af8e39473a10ea4cef25e375789baeb4cb8f819edf980e",
+  "precision": "float32",
+  "roles": {
+    "policy": {
+      "artifact": "driving_policy_cd210_centerline_s71_29df784231f6_fp32_tinygrad.pkl",
+      "inputs": [
+        "desire_pulse",
+        "traffic_convention",
+        "features_buffer"
+      ],
+      "metadata": "driving_policy_cd210_centerline_s71_29df784231f6_fp32_metadata.pkl",
+      "onnx": "driving_policy.onnx",
+      "onnx_sha256": "b466c4544ff55f36920de735df9b059f8e74cfd926477217f161cba8b1a45e8e"
+    },
+    "vision": {
+      "artifact": "driving_vision_cd210_centerline_s71_29df784231f6_fp32_tinygrad.pkl",
+      "inputs": [
+        "img",
+        "big_img"
+      ],
+      "metadata": "driving_vision_cd210_centerline_s71_29df784231f6_fp32_metadata.pkl",
+      "onnx": "driving_vision.onnx",
+      "onnx_sha256": "5145eb6a70c4fc6368d372a13c9242c5b90b554dd5576c1df59baa1023226e76"
+    }
+  },
+  "schema_version": 1,
+  "selected_checkpoint_sha256": "29df784231f6832b894572359dd105bbf8d84d1e4bc3e7dcc25c5039ee486b3b",
+  "step": 71
+}

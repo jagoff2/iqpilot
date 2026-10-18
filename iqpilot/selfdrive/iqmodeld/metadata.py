@@ -82,6 +82,7 @@ def build_metadata_record(model_path):
   parsed = TelemetryEnvelopeParser(model_path).parse()
   props = parsed["metadata_props"]
   graph = parsed["graph"]
+  input_shapes = _graph_shape_table(graph, "input")
   output_shapes = _graph_shape_table(graph, "output")
   output_len = _lookup_metadata(props, "output_len")
   if output_len is None and "outputs" in output_shapes:
@@ -89,7 +90,7 @@ def build_metadata_record(model_path):
   return {
     "model_checkpoint": _lookup_metadata(props, "model_checkpoint"),
     "output_slices": _decoded_slices(props),
-    "input_shapes": _graph_shape_table(graph, "input"),
+    "input_shapes": input_shapes,
     "input_dtypes": {item["name"]: np.dtype(item["parsed_type"].dtype.fmt).name for item in graph["input"]},
     "output_shapes": output_shapes,
     "output_len": int(output_len) if output_len is not None else None,
@@ -97,6 +98,10 @@ def build_metadata_record(model_path):
     "cot_vocab": _lookup_metadata(props, "cot_vocab"),
     "cot_max_length": _lookup_metadata(props, "cot_max_length"),
     "reasoning_states": _lookup_metadata(props, "reasoning_states"),
+    "model_vision_inputs": [name for name in ("img", "big_img", "peripheral_img")
+                            if name in input_shapes],
+    "physical_camera_buffers": ["img", "big_img"],
+    "peripheral_input_enabled": "peripheral_img" in input_shapes,
     **{name: _lookup_metadata(props, name) for name in (
       "map_tile_style", "map_tile_contract", "speed_limit_contract", "drive_profile_contract",
       "cot_decode_mode", "cot_constraint", "cot_templates", "cot_legality_mask", "cot_bank_sha256",

@@ -1,0 +1,132 @@
+{
+  "active_selection_changed": false,
+  "artifact": {
+    "bytes": 130139309,
+    "file_name": "driving_supercombo_full_frame_fov_s110_v1_qcom.pkl",
+    "mode": "0644",
+    "sha256": "c47562b76c95d8d9b7dc425dd2c8343e0b9f19d8e9570a047b4fd3aeef23c01b"
+  },
+  "candidate_accepted": false,
+  "candidate_ref": "full-frame-fov-s110-v1",
+  "compile": {
+    "argv": [
+      "/usr/local/venv/bin/python3",
+      "/data/iqpilot/iqpilot/selfdrive/iqmodeld/tools/compile_supercombo.py",
+      "--model-size",
+      "512x256",
+      "--camera-resolutions",
+      "1928x1208",
+      "1344x760",
+      "--onnx",
+      "/data/media/0/iqpilot-candidates/c3x-full-frame-fov-s110-20261013-v1/bundle/candidate/supercombo.onnx",
+      "--output",
+      "/data/media/0/models/driving_supercombo_full_frame_fov_s110_v1_qcom.pkl.staging",
+      "--frame-skip",
+      "4",
+      "--expected-device",
+      "QCOM"
+    ],
+    "camera_resolutions": [
+      [
+        1928,
+        1208
+      ],
+      [
+        1344,
+        760
+      ]
+    ],
+    "environment": {
+      "DEV": "QCOM",
+      "FLOAT16": "1",
+      "IMAGE": "1",
+      "JIT_BATCH_SIZE": "0",
+      "NOLOCALS": "1",
+      "QCOM_PRIORITY": "8",
+      "WARP_DEV": "QCOM"
+    },
+    "frame_skip": 4,
+    "log": "/data/media/0/iqpilot-candidates/full-frame-fov-s110-v1/qcom-compile-20261013T110638Z-1791889599003888384.log",
+    "model_size": [
+      512,
+      256
+    ]
+  },
+  "compiled_device": "QCOM",
+  "compiled_metadata": {
+    "captured_devices": {
+      "run_policy": [
+        "NPY",
+        "QCOM"
+      ],
+      "warp_1344x760": [
+        "NPY",
+        "QCOM"
+      ],
+      "warp_1928x1208": [
+        "NPY",
+        "QCOM"
+      ]
+    },
+    "model_input_names": [
+      "img",
+      "big_img",
+      "desire_pulse",
+      "traffic_convention",
+      "action_t",
+      "features_buffer",
+      "peripheral_img"
+    ],
+    "peripheral_img_shape": [
+      1,
+      12,
+      128,
+      256
+    ],
+    "runtime_jit_contract": {
+      "physical_camera_buffers": [
+        "img",
+        "big_img"
+      ],
+      "policy_inputs": [
+        "warped",
+        "img_q",
+        "big_img_q",
+        "feat_q",
+        "desire_q",
+        "packed_npy_inputs",
+        "peripheral_img_q"
+      ],
+      "version": 1,
+      "warp_inputs": [
+        "tfm",
+        "big_tfm",
+        "frame",
+        "big_frame"
+      ],
+      "warp_outputs": [
+        "img",
+        "big_img",
+        "peripheral_img"
+      ]
+    }
+  },
+  "compiler_source_sha256": "168b4e318c3bbc78d3fc7502cf202a2ca1a66ce344c8adcee8f6df655125529a",
+  "device_type": "tizi",
+  "expected_device": "QCOM",
+  "live_camera_runtime_executed": false,
+  "model_input_names": [
+    "img",
+    "big_img",
+    "desire_pulse",
+    "traffic_convention",
+    "action_t",
+    "features_buffer",
+    "peripheral_img"
+  ],
+  "qcom_compile_execution": true,
+  "runtime_overlay_manifest_sha256": "270ef7664f9e460fd6652c92056000b22881a7cd71b04e91f220cd5f5488c1ec",
+  "schema_version": 1,
+  "source_onnx_sha256": "e73d721007ca366754bafdb8907a973ee506d27bfe027806af0d5aa0b4553e48",
+  "status": "passed_qcom_compile"
+}

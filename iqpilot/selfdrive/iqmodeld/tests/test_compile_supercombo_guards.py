@@ -6,12 +6,13 @@ from __future__ import annotations
 import os
 
 import numpy as np
+import pytest
 
 os.environ.setdefault("DEV", "CPU")
 
 from iqpilot.selfdrive.iqmodeld.temporal_state import MODEL_INPUT_SPEC
 from iqpilot.selfdrive.iqmodeld.tools.compile_supercombo import (
-  POLICY_INPUTS,
+  policy_inputs,
   _captured_devices,
   _validate_pose_outputs,
   get_policy_npy_shapes,
@@ -22,6 +23,13 @@ from iqpilot.selfdrive.iqmodeld.models.runners.tinygrad.supercombo_runner import
 
 FRAME_SKIP = 4
 EXTRA_INPUT_SHAPES = {"nav_intent": (1, 32), "route_line": (1, 32, 2)}
+
+
+@pytest.fixture(autouse=True)
+def cpu_reference():
+  from tinygrad.helpers import Context
+  with Context(DEV="CPU"):
+    yield
 
 
 def _input_shapes(extra_inputs=()):
@@ -99,7 +107,7 @@ def test_run_policy_feeds_extra_inputs_from_the_packed_tail():
   npy["traffic_convention"][:] = [[1.0, 0.0]]
   warped = Tensor(np.zeros((2, 6, 128, 256), dtype=np.uint8), device="CPU")
 
-  run_policy(**{name: queues[name] for name in POLICY_INPUTS}, warped=warped)
+  run_policy(**{name: queues[name] for name in policy_inputs(input_shapes)}, warped=warped)
 
   assert capture.captured is not None
   assert set(capture.captured) == set(input_shapes)

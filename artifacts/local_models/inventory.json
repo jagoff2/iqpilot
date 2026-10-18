@@ -1,0 +1,111 @@
+{
+  "model_root": "/data/media/0/models",
+  "models": [
+    {
+      "ref": "cd210-centerline-s24-55d9857fcc6f",
+      "display_name": "CD210 Centerline s24",
+      "descriptor": "/data/media/0/models/cd210-centerline-s24-55d9857fcc6f.bundle.json",
+      "present_in_catalog": false,
+      "artifacts": [
+        {
+          "kind": "artifact",
+          "file": "/data/media/0/models/driving_policy_cd210_centerline_s24_55d9857fcc6f_tinygrad.pkl",
+          "exists": true,
+          "bytes": 17445167,
+          "expected_sha256": "eb364ba7cada6539c56c6811063075fb118d633310756c12b52c759622cb401e",
+          "actual_sha256": "eb364ba7cada6539c56c6811063075fb118d633310756c12b52c759622cb401e",
+          "hash_matches": true
+        },
+        {
+          "kind": "metadata",
+          "file": "/data/media/0/models/driving_policy_cd210_centerline_s24_55d9857fcc6f_metadata.pkl",
+          "exists": true,
+          "bytes": 450,
+          "expected_sha256": "8e9bda92e31164bab42eef2fe6dc3e0dc285e7c6190aa8224bae782be711faf7",
+          "actual_sha256": "8e9bda92e31164bab42eef2fe6dc3e0dc285e7c6190aa8224bae782be711faf7",
+          "hash_matches": true
+        },
+        {
+          "kind": "artifact",
+          "file": "/data/media/0/models/driving_vision_cd210_centerline_s24_55d9857fcc6f_fp32_tinygrad.pkl",
+          "exists": true,
+          "bytes": 123710834,
+          "expected_sha256": "62267b4409edb156c87fd931bf522919c6a67e24ad77414df45f0ae0ab023126",
+          "actual_sha256": "62267b4409edb156c87fd931bf522919c6a67e24ad77414df45f0ae0ab023126",
+          "hash_matches": true
+        },
+        {
+          "kind": "metadata",
+          "file": "/data/media/0/models/driving_vision_cd210_centerline_s24_55d9857fcc6f_fp32_metadata.pkl",
+          "exists": true,
+          "bytes": 643,
+          "expected_sha256": "bbe0ec7655f8c6cc6ec6f6050b0400552684d138eb44637ee92273f5828abb2b",
+          "actual_sha256": "bbe0ec7655f8c6cc6ec6f6050b0400552684d138eb44637ee92273f5828abb2b",
+          "hash_matches": true
+        }
+      ]
+    },
+    {
+      "ref": "cd210-centerline-s71-29df784231f6",
+      "display_name": "CD210 Centerline s71 (29df7842)",
+      "descriptor": "/data/media/0/models/cd210-centerline-s71-29df784231f6.bundle.json",
+      "present_in_catalog": false,
+      "artifacts": [
+        {
+          "kind": "artifact",
+          "file": "/data/media/0/models/driving_policy_cd210_centerline_s71_29df784231f6_fp32_tinygrad.pkl",
+          "exists": true,
+          "bytes": 34353726,
+          "expected_sha256": "5b8a48cb0f4c034e4dcce46efe6900f9661f0d543357d7ad6ada9d84afdfbeaa",
+          "actual_sha256": "5b8a48cb0f4c034e4dcce46efe6900f9661f0d543357d7ad6ada9d84afdfbeaa",
+          "hash_matches": true
+        },
+        {
+          "kind": "metadata",
+          "file": "/data/media/0/models/driving_policy_cd210_centerline_s71_29df784231f6_fp32_metadata.pkl",
+          "exists": true,
+          "bytes": 450,
+          "expected_sha256": "42fe1754c9fff32729040efbe2b11bb54b584a0ee5353513999a0f4c5a85784c",
+          "actual_sha256": "42fe1754c9fff32729040efbe2b11bb54b584a0ee5353513999a0f4c5a85784c",
+          "hash_matches": true
+        },
+        {
+          "kind": "artifact",
+          "file": "/data/media/0/models/driving_vision_cd210_centerline_s71_29df784231f6_fp32_tinygrad.pkl",
+          "exists": true,
+          "bytes": 123710834,
+          "expected_sha256": "41662187f8f92bf45bb7ff87f8e42250f16afec844d5c5e1e258c101c3787da6",
+          "actual_sha256": "41662187f8f92bf45bb7ff87f8e42250f16afec844d5c5e1e258c101c3787da6",
+          "hash_matches": true
+        },
+        {
+          "kind": "metadata",
+          "file": "/data/media/0/models/driving_vision_cd210_centerline_s71_29df784231f6_fp32_metadata.pkl",
+          "exists": true,
+          "bytes": 643,
+          "expected_sha256": "b0ec0a4ad9b29142152ab87a3b9014e740a2c829abc04b04b923d5deadb88c0f",
+          "actual_sha256": "b0ec0a4ad9b29142152ab87a3b9014e740a2c829abc04b04b923d5deadb88c0f",
+          "hash_matches": true
+        }
+      ]
+    },
+    {
+      "ref": "full-frame-fov-s110-v1",
+      "display_name": "Full Frame FOV (Development)",
+      "descriptor": "/data/media/0/models/full-frame-fov-s110-v1.bundle.json",
+      "present_in_catalog": false,
+      "artifacts": [
+        {
+          "kind": "artifact",
+          "file": "/data/media/0/models/driving_supercombo_full_frame_fov_s110_v1_qcom.pkl",
+          "exists": true,
+          "bytes": 130139309,
+          "expected_sha256": "c47562b76c95d8d9b7dc425dd2c8343e0b9f19d8e9570a047b4fd3aeef23c01b",
+          "actual_sha256": "c47562b76c95d8d9b7dc425dd2c8343e0b9f19d8e9570a047b4fd3aeef23c01b",
+          "hash_matches": true
+        }
+      ]
+    }
+  ],
+  "binary_storage": "Model binaries remain in persistent device storage and local export packages. Only descriptors, receipts, and integration source are versioned here."
+}
