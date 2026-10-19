@@ -1,5 +1,7 @@
 """Startup policy for settings that are no longer user configurable."""
 
+from iqpilot.common.lane_change_settings import LANE_CHANGE_DELAYS
+
 
 def apply_ui_defaults(params) -> None:
   for key, value in {
@@ -37,7 +39,7 @@ def apply_ui_defaults(params) -> None:
     if params.get(key, return_default=True) != value:
       params.put(key, value)
   timer = int(params.get("IQLaneChangeTimer", return_default=True))
-  if timer not in (0, 1):
+  if timer not in (0, 1) and timer not in LANE_CHANGE_DELAYS:
     params.put("IQLaneChangeTimer", int(timer > 0))
   if params.get("IQSpeedAssistMode", return_default=True) not in (1, 3):
     params.put("IQSpeedAssistMode", 1)

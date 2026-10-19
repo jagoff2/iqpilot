@@ -22,6 +22,9 @@ from iqdbc.car.volkswagen.values import CAR as VOLKSWAGEN_CAR
 from iqdbc.car.volkswagen.values import VolkswagenFlags
 
 from iqpilot.cereal import custom
+from iqpilot.common.lane_change_settings import (
+  DEFAULT_LANE_CHANGE_DELAY, DELAYED_MODE, LANE_CHANGE_DELAYS, lane_change_delay_label, lane_change_mode,
+)
 from iqpilot.common.params import Params
 from iqpilot.common.turn_guard_settings import get_turn_guards_enabled, reset_turn_guards, set_turn_guards_enabled
 from iqpilot.common.ui_settings import DISPLAY_BRIGHTNESS_VALUES, NO_NUDGE_WARNING, SLEEP_TIMER_VALUES
@@ -274,12 +277,19 @@ class SteeringLayout(Widget):
     )
     self._lane_change_setting = multiple_button_item(
       title=lambda: tr("Blinker-Initiated Lane Change"),
-      description=lambda: tr("Choose whether a steering nudge is required before a blinker-initiated lane change."),
-      buttons=[lambda: tr("Confirmation (Nudge)"), lambda: tr("No Confirmation (No Nudge)")],
-      button_width=480,
-      selected_index=int(ui_state.params.get("IQLaneChangeTimer", return_default=True)),
+      description=lambda: tr("Require a steering nudge, change without a nudge, or wait after detecting the turn signal."),
+      buttons=[lambda: tr("Nudge"), lambda: tr("No Nudge"), lambda: tr("Delayed")],
+      button_width=320,
+      selected_index=lane_change_mode(ui_state.params.get("IQLaneChangeTimer", return_default=True)),
       callback=self._set_lane_change_mode,
     )
+    self._lane_change_delay = button_item(
+      title=lambda: tr("Lane Change Delay"),
+      button_text=lambda: lane_change_delay_label(ui_state.params.get("IQLaneChangeTimer", return_default=True)),
+      description=lambda: tr("Time from turn-signal detection before an automatic lane change, in 0.5-second increments."),
+      callback=self._select_lane_change_delay,
+    )
+    self._lane_change_delay.set_visible(lambda: lane_change_mode(ui_state.params.get("IQLaneChangeTimer", return_default=True)) == DELAYED_MODE)
     self._lane_turn_desire_toggle = toggle_item(
       lambda: tr("Blinker-Initiated Turn Planning"),
       lambda: tr("If you're driving at 20 mph (32 km/h) or below and have your blinker on,"
@@ -312,6 +322,7 @@ class SteeringLayout(Widget):
       self._pause_on_steering_override_toggle,
       IQLineSeparator(40),
       self._lane_change_setting,
+      self._lane_change_delay,
       IQLineSeparator(40),
       self._lane_turn_desire_toggle,
       IQLineSeparator(40),
@@ -351,21 +362,37 @@ class SteeringLayout(Widget):
     self._refresh_turn_guards()
 
   def _set_lane_change_mode(self, selected: int):
-    current = int(ui_state.params.get("IQLaneChangeTimer", return_default=True))
+    current = lane_change_mode(ui_state.params.get("IQLaneChangeTimer", return_default=True))
     if selected == current:
       return
-    if selected == 0:
-      ui_state.params.put("IQLaneChangeTimer", 0)
+    preset = DEFAULT_LANE_CHANGE_DELAY if selected == DELAYED_MODE else selected
+    if selected == 0 or current != 0:
+      ui_state.params.put("IQLaneChangeTimer", preset)
       return
 
     self._lane_change_setting.action_item.set_selected_button(current)
 
     def confirm(result):
       if result == DialogResult.CONFIRM:
-        ui_state.params.put("IQLaneChangeTimer", 1)
-        self._lane_change_setting.action_item.set_selected_button(1)
+        ui_state.params.put("IQLaneChangeTimer", preset)
+        self._lane_change_setting.action_item.set_selected_button(selected)
 
-    dialog = ConfirmDialog(tr(NO_NUDGE_WARNING), tr("Enable No Nudge"), large=True, title=tr("Are you sure?"))
+    label = tr("Enable Delayed") if selected == DELAYED_MODE else tr("Enable No Nudge")
+    dialog = ConfirmDialog(tr(NO_NUDGE_WARNING), label, large=True, title=tr("Are you sure?"))
+    gui_app.set_modal_overlay(dialog, callback=confirm)
+
+  def _select_lane_change_delay(self):
+    current = ui_state.params.get("IQLaneChangeTimer", return_default=True)
+    if lane_change_mode(current) != DELAYED_MODE:
+      return
+    choices = {lane_change_delay_label(preset): preset for preset in LANE_CHANGE_DELAYS}
+    dialog = MultiOptionDialog(tr("Lane Change Delay"), list(choices), lane_change_delay_label(current))
+
+    def confirm(result):
+      if (result == DialogResult.CONFIRM and dialog.selection in choices and
+          lane_change_mode(ui_state.params.get("IQLaneChangeTimer", return_default=True)) == DELAYED_MODE):
+        ui_state.params.put("IQLaneChangeTimer", choices[dialog.selection])
+
     gui_app.set_modal_overlay(dialog, callback=confirm)
 
   @staticmethod
@@ -390,7 +417,7 @@ class SteeringLayout(Widget):
     self._steering_mode.set_description("")
     self._pause_on_steering_override_toggle.action_item.set_enabled(ui_state.is_offroad() and aol_enabled)
 
-    self._lane_change_setting.action_item.set_selected_button(int(ui_state.params.get("IQLaneChangeTimer", return_default=True)))
+    self._lane_change_setting.action_item.set_selected_button(lane_change_mode(ui_state.params.get("IQLaneChangeTimer", return_default=True)))
 
     turn_desire = ui_state.params.get_bool("IQLaneTurnDesire")
     live_delay = ui_state.params.get_bool("IQLiveSteerDelay")

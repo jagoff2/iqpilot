@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from iqpilot.common.params import Params
+from iqpilot.common.lane_change_settings import DEFAULT_LANE_CHANGE_DELAY, DELAYED_MODE, LANE_CHANGE_DELAYS, lane_change_delay_label
 from iqpilot.selfdrive.ui.mici.layouts.settings import steering
 from iqpilot.system.ui.widgets import DialogResult
 from iqpilot.system.ui.lib.application import MouseEvent, MousePos
@@ -44,15 +45,16 @@ def test_mici_no_nudge_waits_for_confirmation(monkeypatch, tmp_path, mocker, con
   assert params.get('IQLaneChangeTimer') == int(confirmed)
 
 
-def test_mici_nudge_does_not_require_confirmation(monkeypatch, tmp_path, mocker):
+@pytest.mark.parametrize('current,expected', [(1, DEFAULT_LANE_CHANGE_DELAY), *[(preset, 0) for preset in LANE_CHANGE_DELAYS]])
+def test_mici_cycles_no_nudge_delayed_nudge(monkeypatch, tmp_path, mocker, current, expected):
   params = Params(str(tmp_path))
-  params.put('IQLaneChangeTimer', 1)
+  params.put('IQLaneChangeTimer', current)
   selector = SimpleNamespace(_params=params, _param='IQLaneChangeTimer', refresh=mocker.Mock())
   monkeypatch.setattr(steering.BigButton, '_handle_mouse_release', lambda *args: None)
   push = mocker.Mock()
   monkeypatch.setattr(steering, 'gui_app', SimpleNamespace(push_widget=push))
   steering.LaneChangeSelector._handle_mouse_release(selector, None)
-  assert params.get('IQLaneChangeTimer') == 0
+  assert params.get('IQLaneChangeTimer') == expected
   push.assert_not_called()
 
 
@@ -82,7 +84,8 @@ def test_slider_requires_a_complete_slide_in_its_direction(monkeypatch, mocker, 
 
 
 @pytest.mark.parametrize('result', [DialogResult.CANCEL, DialogResult.CONFIRM])
-def test_big_no_nudge_waits_for_confirmation(monkeypatch, tmp_path, mocker, result):
+@pytest.mark.parametrize('selected,preset', [(1, 1), (DELAYED_MODE, DEFAULT_LANE_CHANGE_DELAY)])
+def test_big_automatic_modes_wait_for_confirmation(monkeypatch, tmp_path, mocker, result, selected, preset):
   params = Params(str(tmp_path))
   params.put('IQLaneChangeTimer', 0)
   action = mocker.Mock()
@@ -92,11 +95,11 @@ def test_big_no_nudge_waits_for_confirmation(monkeypatch, tmp_path, mocker, resu
   monkeypatch.setattr(iq_panels, 'ConfirmDialog', lambda *args, **kwargs: args)
   monkeypatch.setattr(iq_panels, 'gui_app', SimpleNamespace(set_modal_overlay=lambda dialog, callback: dialogs.append(callback)))
 
-  iq_panels.SteeringLayout._set_lane_change_mode(panel, 1)
+  iq_panels.SteeringLayout._set_lane_change_mode(panel, selected)
   assert params.get('IQLaneChangeTimer') == 0
   action.set_selected_button.assert_called_once_with(0)
   dialogs[0](result)
-  assert params.get('IQLaneChangeTimer') == int(result == DialogResult.CONFIRM)
+  assert params.get('IQLaneChangeTimer') == (preset if result == DialogResult.CONFIRM else 0)
 
 
 def test_big_nudge_does_not_require_confirmation(monkeypatch, tmp_path, mocker):
@@ -108,3 +111,119 @@ def test_big_nudge_does_not_require_confirmation(monkeypatch, tmp_path, mocker):
   iq_panels.SteeringLayout._set_lane_change_mode(SimpleNamespace(), 0)
   assert params.get('IQLaneChangeTimer') == 0
   overlay.assert_not_called()
+
+
+@pytest.mark.parametrize('preset', LANE_CHANGE_DELAYS)
+def test_mici_shows_delayed_mode_and_selected_duration(monkeypatch, tmp_path, mocker, preset):
+  params = Params(str(tmp_path))
+  params.put('IQLaneChangeTimer', preset)
+  selector = SimpleNamespace(_params=params, _param='IQLaneChangeTimer', _options=['nudge', 'no nudge', 'delayed'], set_value=mocker.Mock())
+  steering.LaneChangeSelector.refresh(selector)
+  selector.set_value.assert_called_once_with('delayed')
+
+  monkeypatch.setattr(steering, 'ui_state', SimpleNamespace(params=params))
+  panel = SimpleNamespace(_delay=mocker.Mock())
+  steering.LaneChangePanel._refresh_delay(panel)
+  panel._delay.set_visible.assert_called_once_with(True)
+  panel._delay.set_value.assert_called_once_with(lane_change_delay_label(preset))
+
+
+@pytest.mark.parametrize('preset', [0, 1])
+def test_mici_delay_submenu_hidden_for_other_modes(monkeypatch, tmp_path, mocker, preset):
+  params = Params(str(tmp_path))
+  params.put('IQLaneChangeTimer', preset)
+  monkeypatch.setattr(steering, 'ui_state', SimpleNamespace(params=params))
+  panel = SimpleNamespace(_delay=mocker.Mock())
+  steering.LaneChangePanel._refresh_delay(panel)
+  panel._delay.set_visible.assert_called_once_with(False)
+
+
+@pytest.mark.parametrize('preset', LANE_CHANGE_DELAYS)
+def test_mici_delay_choice_is_saved(monkeypatch, tmp_path, mocker, preset):
+  params = Params(str(tmp_path))
+  params.put('IQLaneChangeTimer', DEFAULT_LANE_CHANGE_DELAY)
+  monkeypatch.setattr(steering, 'ui_state', SimpleNamespace(params=params))
+  panel = SimpleNamespace(dismiss=mocker.Mock())
+  steering.LaneChangeDelayPanel._select_delay(panel, preset)
+  assert params.get('IQLaneChangeTimer') == preset
+  panel.dismiss.assert_called_once()
+
+
+@pytest.mark.parametrize('result', [DialogResult.CANCEL, DialogResult.CONFIRM])
+@pytest.mark.parametrize('preset', LANE_CHANGE_DELAYS)
+def test_big_delay_picker_saves_only_confirmed_choice(monkeypatch, tmp_path, preset, result):
+  params = Params(str(tmp_path))
+  params.put('IQLaneChangeTimer', DEFAULT_LANE_CHANGE_DELAY)
+  dialogs = []
+  monkeypatch.setattr(iq_panels, 'ui_state', SimpleNamespace(params=params))
+  monkeypatch.setattr(iq_panels, 'MultiOptionDialog', lambda title, options, current:
+                      SimpleNamespace(options=options, current=current, selection=current))
+  monkeypatch.setattr(iq_panels, 'gui_app', SimpleNamespace(set_modal_overlay=lambda dialog, callback: dialogs.append((dialog, callback))))
+  iq_panels.SteeringLayout._select_lane_change_delay(None)
+  dialog, confirm = dialogs[0]
+  assert dialog.options == ['0.5 s', '1.0 s', '1.5 s', '2.0 s', '2.5 s', '3.0 s']
+  assert dialog.current == '1.0 s'
+  dialog.selection = lane_change_delay_label(preset)
+  confirm(result)
+  assert params.get('IQLaneChangeTimer') == (preset if result == DialogResult.CONFIRM else DEFAULT_LANE_CHANGE_DELAY)
+
+
+@pytest.mark.parametrize('preset', LANE_CHANGE_DELAYS)
+def test_big_reselecting_delayed_preserves_duration(monkeypatch, tmp_path, mocker, preset):
+  params = Params(str(tmp_path))
+  params.put('IQLaneChangeTimer', preset)
+  monkeypatch.setattr(iq_panels, 'ui_state', SimpleNamespace(params=params))
+  overlay = mocker.Mock()
+  monkeypatch.setattr(iq_panels, 'gui_app', SimpleNamespace(set_modal_overlay=overlay))
+  iq_panels.SteeringLayout._set_lane_change_mode(None, DELAYED_MODE)
+  assert params.get('IQLaneChangeTimer') == preset
+  overlay.assert_not_called()
+
+
+@pytest.fixture
+def headless_lane_change_ui(monkeypatch):
+  params = Params()
+  state = SimpleNamespace(params=params, CP=None, is_offroad=lambda: True)
+  monkeypatch.setattr(steering, 'ui_state', state)
+  monkeypatch.setattr(iq_panels, 'ui_state', state)
+  monkeypatch.setattr(steering.gui_app, 'font', lambda weight: steering.rl.Font())
+  monkeypatch.setattr(steering.gui_app, 'texture', lambda path, width=None, height=None, **kwargs:
+                      SimpleNamespace(width=width or 1, height=height or 1))
+  return params
+
+
+def test_mici_menu_exposes_delay_choices_only_in_delayed_mode(headless_lane_change_ui, monkeypatch, mocker):
+  params = headless_lane_change_ui
+  panel = steering.LaneChangePanel()
+  opened = []
+  monkeypatch.setattr(steering.gui_app, 'push_widget', opened.append)
+  monkeypatch.setattr(panel._delay_panel, 'dismiss', mocker.Mock())
+  for preset in (0, 1, *LANE_CHANGE_DELAYS):
+    params.put('IQLaneChangeTimer', preset)
+    panel._timer.refresh()
+    panel._refresh_delay()
+    assert panel._delay.is_visible == (preset in LANE_CHANGE_DELAYS)
+  panel._delay._click_callback()
+  assert opened == [panel._delay_panel]
+  for preset, button in panel._delay_panel._choices.items():
+    button._click_callback()
+    panel._refresh_delay()
+    assert params.get('IQLaneChangeTimer') == preset
+    assert panel._delay.value == lane_change_delay_label(preset)
+
+
+def test_big_menu_exposes_delay_picker_only_in_delayed_mode(headless_lane_change_ui, monkeypatch):
+  params = headless_lane_change_ui
+  panel = iq_panels.SteeringLayout()
+  opened = []
+  monkeypatch.setattr(iq_panels.gui_app, 'set_modal_overlay', lambda dialog, callback: opened.append((dialog, callback)))
+  for preset in (0, 1, *LANE_CHANGE_DELAYS):
+    params.put('IQLaneChangeTimer', preset)
+    assert panel._lane_change_delay.is_visible == (preset in LANE_CHANGE_DELAYS)
+  panel._lane_change_delay.callback()
+  dialog, confirm = opened[0]
+  assert dialog.options == ['0.5 s', '1.0 s', '1.5 s', '2.0 s', '2.5 s', '3.0 s']
+  dialog.selection = '1.5 s'
+  confirm(DialogResult.CONFIRM)
+  assert params.get('IQLaneChangeTimer') == 6
+  assert panel._lane_change_delay.action_item.text == '1.5 s'

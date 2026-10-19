@@ -4,6 +4,9 @@ Copyright © IQ.Lvbs, apart of Project Teal Lvbs, All Rights Reserved, licensed 
 
 import pyray as rl
 
+from iqpilot.common.lane_change_settings import (
+  DEFAULT_LANE_CHANGE_DELAY, DELAYED_MODE, LANE_CHANGE_DELAYS, lane_change_delay_label, lane_change_mode,
+)
 from iqpilot.common.ui_settings import NO_NUDGE_WARNING
 from iqpilot.common.turn_guard_settings import get_turn_guards_enabled, set_turn_guards_enabled
 from iqpilot.common.swaglog import cloudlog
@@ -89,7 +92,10 @@ class NoNudgeConfirmation(BigDialogBase):
 
 class LaneChangeSelector(MappedParamToggle):
   def __init__(self):
-    super().__init__(tr("Auto Lane Change"), "IQLaneChangeTimer", [tr("nudge"), tr("no nudge")], [0, 1])
+    super().__init__(tr("Auto Lane Change"), "IQLaneChangeTimer", [tr("nudge"), tr("no nudge"), tr("delayed")], [0, 1, DELAYED_MODE])
+
+  def refresh(self):
+    self.set_value(self._options[lane_change_mode(self._params.get(self._param, return_default=True))])
 
   def _enable_no_nudge(self):
     self._params.put(self._param, 1)
@@ -97,23 +103,61 @@ class LaneChangeSelector(MappedParamToggle):
 
   def _handle_mouse_release(self, mouse_pos):
     BigButton._handle_mouse_release(self, mouse_pos)
-    if self._params.get(self._param, return_default=True) == 1:
-      self._params.put(self._param, 0)
-      self.refresh()
-    else:
+    current = lane_change_mode(self._params.get(self._param, return_default=True))
+    if current == 0:
       gui_app.push_widget(NoNudgeConfirmation(self._enable_no_nudge))
+    else:
+      self._params.put(self._param, DEFAULT_LANE_CHANGE_DELAY if current == 1 else 0)
+      self.refresh()
+
+
+class LaneChangeDelayPanel(NavScroller):
+  def __init__(self):
+    super().__init__()
+    self._choices = {}
+    for preset in LANE_CHANGE_DELAYS:
+      button = BigButton(lane_change_delay_label(preset))
+      button.set_click_callback(lambda selected=preset: self._select_delay(selected))
+      self._choices[preset] = button
+    self._scroller.add_widgets(list(self._choices.values()))
+
+  def _select_delay(self, preset):
+    # Do not enable automatic lane changes through a stale submenu.
+    if lane_change_mode(ui_state.params.get("IQLaneChangeTimer", return_default=True)) == DELAYED_MODE:
+      ui_state.params.put("IQLaneChangeTimer", preset)
+    self.dismiss()
+
+  def show_event(self):
+    super().show_event()
+    current = ui_state.params.get("IQLaneChangeTimer", return_default=True)
+    for preset, button in self._choices.items():
+      button.set_value(tr("selected") if preset == current else "")
 
 
 class LaneChangePanel(NavScroller):
   def __init__(self):
     super().__init__()
     self._timer = LaneChangeSelector()
+    self._delay_panel = LaneChangeDelayPanel()
+    self._delay = BigButton(tr("lane change delay"))
+    self._delay.set_click_callback(lambda: gui_app.push_widget(self._delay_panel))
     self._edge_guard = BigParamControl(tr("Lane Edge Guard"), "IQEdgeGuard")
-    self._scroller.add_widgets([self._timer, self._edge_guard])
+    self._scroller.add_widgets([self._timer, self._delay, self._edge_guard])
+    self._refresh_delay()
+
+  def _refresh_delay(self):
+    preset = ui_state.params.get("IQLaneChangeTimer", return_default=True)
+    self._delay.set_visible(lane_change_mode(preset) == DELAYED_MODE)
+    self._delay.set_value(lane_change_delay_label(preset))
+
+  def _update_state(self):
+    super()._update_state()
+    self._refresh_delay()
 
   def show_event(self):
     super().show_event()
     self._timer.refresh()
+    self._refresh_delay()
     self._edge_guard.refresh()
 
 
