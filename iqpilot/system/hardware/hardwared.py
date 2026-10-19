@@ -388,6 +388,7 @@ def hardware_thread(end_event, hw_queue, memory_queue) -> None:
   should_start_prev = False
   in_car = False
   engaged_prev = False
+  network_metered_prev: bool | None = None
   pwrsave = False
   low_power = False
   low_power_prev = False
@@ -699,7 +700,10 @@ def hardware_thread(end_event, hw_queue, memory_queue) -> None:
         except Exception:
           cloudlog.exception("failed to save offroad status")
 
-    params.put_bool_nonblocking("NetworkMetered", msg.deviceState.networkMetered)
+    # Publish at 2 Hz, but only persist the initial value and network transitions.
+    if msg.deviceState.networkMetered != network_metered_prev:
+      params.put_bool_nonblocking("NetworkMetered", msg.deviceState.networkMetered)
+      network_metered_prev = msg.deviceState.networkMetered
 
     now_ts = time.monotonic()
     if off_ts:
