@@ -62,7 +62,7 @@ class VehicleParamsEstimator:
     self.angle_offset, self.roll, self.active = np.degrees(self.x_initial[States.ANGLE_OFFSET].item()), 0.0, False
     self.avg_angle_offset = self.angle_offset
 
-  def handle_log(self, t: float, which: str, msg: capnp._DynamicStructReader):
+  def handle_log(self, t: float, which: str, msg: capnp._DynamicStructReader, roll_override: float | None = None):
     if which == 'deviceMotion':
       device_pose = Pose.from_live_pose(msg)
       calibrated_pose = self.calibrator.build_calibrated_pose(device_pose)
@@ -77,6 +77,8 @@ class VehicleParamsEstimator:
       self.observed_yaw_rate = yaw_rate
 
       localizer_roll, localizer_roll_std = device_pose.orientation.x, device_pose.orientation.x_std
+      if roll_override is not None:
+        localizer_roll = roll_override
       localizer_roll_std = np.radians(1) if np.isnan(localizer_roll_std) else localizer_roll_std
       roll_valid = (localizer_roll_std < ROLL_STD_MAX) and (ROLL_MIN < localizer_roll < ROLL_MAX) and msg.sensorsOK
       if roll_valid:

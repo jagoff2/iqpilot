@@ -49,9 +49,11 @@ class TorqueBuckets(PointBuckets):
 
 
 class TorqueEstimator(ParameterEstimator):
-  def __init__(self, CP, decimated=False, track_all_points=False):
+  def __init__(self, CP, decimated=False, track_all_points=False, roll_correction=False):
     ParameterEstimator.__init__(self)
     self.CP = CP
+    # Corrected and legacy gravity frames must never share learned points/offsets.
+    self.version = VERSION + 1 if roll_correction else VERSION
     self.hist_len = int(HISTORY / DT_MDL)
     self.lag = 0.0
     self.track_all_points = track_all_points  # for offline analysis, without max lateral accel or max steer torque filters
@@ -98,13 +100,15 @@ class TorqueEstimator(ParameterEstimator):
     params = Params()
     params_cache = params.get("CarParamsPrevRoute")
     torque_cache = params.get("LiveTorqueParameters")
-    if params_cache is not None and torque_cache is not None:
+    # Corrected offsets adapt across drives and can be invalidated/reacquired.
+    # Start fresh rather than restoring points tied to an obsolete roll baseline.
+    if not roll_correction and params_cache is not None and torque_cache is not None:
       try:
         with log.Event.from_bytes(torque_cache) as log_evt:
           cache_ltp = log_evt.lateralTorqueParameters
         with car.CarParams.from_bytes(params_cache) as msg:
           cache_CP = msg
-        if self.get_restore_key(cache_CP, cache_ltp.version) == self.get_restore_key(CP, VERSION):
+        if self.get_restore_key(cache_CP, cache_ltp.version) == self.get_restore_key(CP, self.version):
           if cache_ltp.valid:
             initial_params = {
               'latAccelFactor': cache_ltp.latAccelFactorFiltered,
@@ -162,7 +166,12 @@ class TorqueEstimator(ParameterEstimator):
       self.filtered_params[param].update(value)
       self.filtered_params[param].update_alpha(self.decay)
 
-  def handle_log(self, t, which, msg):
+  def reset_roll_reference(self):
+    # Discard samples from the old gravity frame without stepping the published
+    # torque parameters. New fits update the existing filters gradually.
+    self.reset()
+
+  def handle_log(self, t, which, msg, roll_override=None):
     if which == "carControl":
       self.raw_points["carControl_t"].append(t + self.lag)
       self.raw_points["lat_active"].append(msg.latActive)
@@ -186,7 +195,7 @@ class TorqueEstimator(ParameterEstimator):
         angular_velocity_calibrated = calibrated_pose.angular_velocity
 
         yaw_rate = angular_velocity_calibrated.yaw
-        roll = device_pose.orientation.roll
+        roll = device_pose.orientation.roll if roll_override is None else roll_override
         # check lat active up to now (without lag compensation)
         lat_active = np.interp(np.arange(t - MIN_ENGAGE_BUFFER, t + self.lag, DT_MDL),
                                self.raw_points['carControl_t'], self.raw_points['lat_active']).astype(bool)
@@ -206,7 +215,7 @@ class TorqueEstimator(ParameterEstimator):
     msg = messaging.new_message('lateralTorqueParameters')
     msg.valid = valid
     lateralTorqueParameters = msg.lateralTorqueParameters
-    lateralTorqueParameters.version = VERSION
+    lateralTorqueParameters.version = self.version
     lateralTorqueParameters.useParams = self.use_params
 
     # Calculate raw estimates when possible, only update filters when enough points are gathered

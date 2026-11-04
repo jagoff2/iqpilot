@@ -4,6 +4,7 @@ import pytest
 
 from iqpilot.cereal import car
 from iqpilot.common.params import Params
+from iqpilot.common.vehicle_roll_settings import get_vehicle_roll_correction_enabled, set_vehicle_roll_correction_enabled
 from iqpilot.ui.layouts.settings import iq_panels
 
 
@@ -118,13 +119,69 @@ def test_nnff_row_survives_brand_panel_rebuilds(panel, monkeypatch, mocker):
   brand_row = iq_panels.toggle_item("Brand setting")
   brand_panel = SimpleNamespace(items=[brand_row], update_settings=mocker.Mock())
   monkeypatch.setattr(iq_panels, "brand_settings_for", lambda brand: brand_panel if brand == "toyota" else None)
-  assert layout.items == [layout._vehicle_item, layout._legend_widget, layout._nnff]
+  assert layout.items == [layout._vehicle_item, layout._legend_widget, layout._nnff, layout._vehicle_roll_correction]
   assert layout._nnff.title == "NNFF Steering"
   assert "HYUNDAI KONA EV" in layout._nnff.description
   panel.state.CP.brand = "toyota"
   layout._update_state()
-  assert layout.items == [layout._vehicle_item, layout._legend_widget, layout._nnff, brand_row]
+  assert layout.items == [layout._vehicle_item, layout._legend_widget, layout._nnff, layout._vehicle_roll_correction, brand_row]
   assert layout._scroller._items == layout.items
   panel.state.CP.brand = "hyundai"
   layout._update_state()
-  assert layout.items == [layout._vehicle_item, layout._legend_widget, layout._nnff]
+  assert layout.items == [layout._vehicle_item, layout._legend_widget, layout._nnff, layout._vehicle_roll_correction]
+
+
+@pytest.mark.parametrize("saved,offroad", [(False, True), (True, True), (False, False), (True, False)])
+def test_vehicle_roll_correction_toggle_is_guarded_before_save(panel, mocker, saved, offroad):
+  state, layout = panel.state, panel.layout
+  set_vehicle_roll_correction_enabled(state.params, saved)
+  layout._sync_vehicle_roll_correction()
+  state.offroad = offroad  # Also test a transition after the last rendered frame.
+  put_bool = state.params.put_bool
+  original_setter = iq_panels.set_vehicle_roll_correction_enabled
+  writes = []
+
+  def record_setting(params, value):
+    original_setter(params, value)
+    writes.append(("VehicleRollCorrection", value))
+
+  def record_put(key, value):
+    if key == "OnroadCycleRequested":
+      assert get_vehicle_roll_correction_enabled(state.params) is not saved
+    writes.append((key, value))
+    put_bool(key, value)
+
+  state.params = mocker.Mock(wraps=state.params)
+  state.params.put_bool.side_effect = record_put
+  mocker.patch.object(iq_panels, "set_vehicle_roll_correction_enabled", side_effect=record_setting)
+  toggle = layout._vehicle_roll_correction.action_item.toggle
+  assert toggle.param_key is None
+  toggle._handle_mouse_release(None)
+  expected = not saved if offroad else saved
+  assert toggle.get_state() is expected
+  assert get_vehicle_roll_correction_enabled(state.params) is expected
+  assert state.params.get_bool("OnroadCycleRequested") is offroad
+  assert writes == ([("VehicleRollCorrection", expected), ("OnroadCycleRequested", True)] if offroad else [])
+  assert layout._vehicle_roll_correction.action_item.enabled is offroad
+
+
+def test_vehicle_roll_correction_defaults_off_and_refreshes(panel):
+  layout, state = panel.layout, panel.state
+  assert not layout._vehicle_roll_correction.action_item.get_state()
+  assert layout._vehicle_roll_correction.title == "Vehicle Roll Correction"
+  assert "vehicle IMU" in layout._vehicle_roll_correction.description
+  assert "next drive" in layout._vehicle_roll_correction.description
+  set_vehicle_roll_correction_enabled(state.params, True)
+  state.offroad = False
+  layout._update_state()
+  assert layout._vehicle_roll_correction.action_item.get_state()
+  assert not layout._vehicle_roll_correction.action_item.enabled
+
+
+def test_vehicle_roll_correction_save_failure_preserves_selection(panel, mocker):
+  mocker.patch.object(iq_panels, "set_vehicle_roll_correction_enabled", side_effect=OSError("simulated write failure"))
+  mocker.patch.object(iq_panels.cloudlog, "exception")
+  panel.layout._vehicle_roll_correction.action_item.toggle._handle_mouse_release(None)
+  assert not panel.layout._vehicle_roll_correction.action_item.get_state()
+  assert not get_vehicle_roll_correction_enabled(panel.state.params)
+  assert not panel.state.params.get_bool("OnroadCycleRequested")

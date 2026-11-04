@@ -28,6 +28,7 @@ from iqpilot.common.lane_change_settings import (
 from iqpilot.common.params import Params
 from iqpilot.common.turn_guard_settings import get_turn_guards_enabled, reset_turn_guards, set_turn_guards_enabled
 from iqpilot.common.ui_settings import DISPLAY_BRIGHTNESS_VALUES, NO_NUDGE_WARNING, SLEEP_TIMER_VALUES
+from iqpilot.common.vehicle_roll_settings import get_vehicle_roll_correction_enabled, set_vehicle_roll_correction_enabled
 from iqpilot.common.swaglog import cloudlog
 from iqpilot.selfdrive.car.vehicle_catalog import load_catalog
 from iqpilot.selfdrive.iqmodeld.model_cache import bundle_matches, clear_model_cache, model_cache_size, remove_bundle_files
@@ -1834,8 +1835,15 @@ class VehicleLayout(Widget):
       callback=self._on_nnff,
     )
     self._refresh_nnff(force=True)
+    self._vehicle_roll_correction = toggle_item(
+      title=lambda: tr("Vehicle Roll Correction"),
+      description=lambda: tr("Compensate persistent device roll offset using the vehicle IMU. Changes take effect next drive."),
+      initial_state=get_vehicle_roll_correction_enabled(ui_state.params),
+      callback=self._on_vehicle_roll_correction,
+    )
+    self._sync_vehicle_roll_correction()
 
-    self.items = [self._vehicle_item, self._legend_widget, self._nnff]
+    self.items = [self._vehicle_item, self._legend_widget, self._nnff, self._vehicle_roll_correction]
     self._scroller = Scroller(self.items, line_separator=True, spacing=0)
 
   @staticmethod
@@ -1861,7 +1869,7 @@ class VehicleLayout(Widget):
     self._current_brand = brand
     self._brand_settings = brand_settings_for(brand)
     brand_rows = self._brand_settings.items if self._brand_settings else []
-    self.items = [self._vehicle_item, self._legend_widget, self._nnff, *brand_rows]
+    self.items = [self._vehicle_item, self._legend_widget, self._nnff, self._vehicle_roll_correction, *brand_rows]
     self._scroller = Scroller(self.items, line_separator=True, spacing=0)
 
   def _refresh_nnff(self, force=False):
@@ -1896,6 +1904,24 @@ class VehicleLayout(Widget):
     self._refresh_vehicle_row()
     self._sync_brand_panel()
     self._refresh_nnff()
+    self._sync_vehicle_roll_correction()
+
+  def _sync_vehicle_roll_correction(self):
+    self._vehicle_roll_correction.action_item.set_state(get_vehicle_roll_correction_enabled(ui_state.params))
+    self._vehicle_roll_correction.action_item.set_enabled(ui_state.is_offroad())
+
+  def _on_vehicle_roll_correction(self, enabled):
+    if not ui_state.is_offroad():
+      self._sync_vehicle_roll_correction()
+      return
+    try:
+      set_vehicle_roll_correction_enabled(ui_state.params, enabled)
+    except OSError:
+      cloudlog.exception("Failed to save vehicle roll correction")
+      self._sync_vehicle_roll_correction()
+      return
+    ui_state.params.put_bool("OnroadCycleRequested", True)
+    self._sync_vehicle_roll_correction()
 
   def _update_state(self):
     self._on_vehicle_changed()
@@ -1908,4 +1934,5 @@ class VehicleLayout(Widget):
 
   def show_event(self):
     self._refresh_nnff(force=True)
+    self._sync_vehicle_roll_correction()
     self._scroller.show_event()
