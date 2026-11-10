@@ -11,6 +11,7 @@ from iqpilot.cereal import car, log
 from iqpilot.common.params import Params
 from iqpilot.selfdrive.car import interfaces as iqpilot_interfaces
 from iqpilot.selfdrive.car.helpers import convert_to_capnp
+from iqpilot.selfdrive.controls.lib.actuator_feedback import SteeringActuatorFeedback
 from iqpilot.selfdrive.controls.lib.latcontrol_torque import LatControlTorque
 from iqpilot.selfdrive.controls.tests.lateral_control_scenarios import ScenarioNetwork
 from iqpilot.selfdrive.iqmodeld.config import ModelConstants
@@ -50,18 +51,20 @@ def controller_factory(monkeypatch, tmp_path):
   return factory
 
 
-def run_frame(controller, vm, cp, speed=2.0, active=True, angle=0.0, curvature=0.0001):
+def run_frame(controller, vm, cp, speed=2.0, active=True, angle=0.0, curvature=0.0001, steer_limited=True):
   state = car.CarState.new_message(vEgo=speed, steeringAngleDeg=angle, steeringRateDeg=0.0)
   params = log.VehicleParameters.new_message(stiffnessFactor=1.0, steerRatio=cp.steerRatio)
-  return controller.update(active, state, vm, params, True, curvature, None, False, 0.3)
+  return controller.update(active, state, vm, params, steer_limited, curvature, None, False, 0.3)
 
 
-@pytest.mark.parametrize("speed", [0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 5.0, 7.49, 7.5])
-def test_standard_low_speed_feedback_is_bounded_without_output_clipping(controller_factory, speed):
+@pytest.mark.parametrize("speed,expected_gain", [(0.0, 250.0), (0.5, 250.0), (1.0, 250.0), (1.25, 185.0),
+                                               (1.5, 120.0), (2.0, 65.0), (2.5, 47.5), (3.0, 30.0),
+                                               (5.0, 11.5), (6.25, 8.5), (7.49, 5.524), (7.5, 5.5)])
+def test_standard_low_speed_feedback_restores_original_compensation(controller_factory, speed, expected_gain):
   controller, vm, cp = controller_factory()
   output, _, trace = run_frame(controller, vm, cp, speed, angle=0.1)
-  assert controller.pid.k_p == pytest.approx(5.5)
-  assert trace.p == pytest.approx(5.5 * trace.error, abs=1e-7)
+  assert controller.pid.k_p == pytest.approx(expected_gain)
+  assert trace.p == pytest.approx(expected_gain * trace.error, abs=1e-7)
   assert np.isfinite(output)
   assert abs(output) < 1.0
 
@@ -73,6 +76,34 @@ def test_standard_above_transition_retains_original_feedback(controller_factory,
   expected_gain = float(np.interp(speed, [7.5, 10.0, 15.0, 30.0], [5.5, 3.5, 2.0, 0.8]))
   assert controller.pid.k_p == pytest.approx(expected_gain)
   assert trace.p == pytest.approx(expected_gain * trace.error, abs=1e-7)
+
+
+@pytest.mark.parametrize("initial_integral", [0.0, 0.2])
+@pytest.mark.parametrize("speed,integrates", [(0.5, False), (2.2352, False), (4.999, False), (5.0, True), (5.001, True)])
+def test_persistent_error_preserves_integral_speed_threshold(controller_factory, initial_integral, speed, integrates):
+  controller, vm, cp = controller_factory()
+  controller.turn_guards_enabled = False
+  controller.update_live_torque_params(4.0, 0.0, 0.12)
+  controller.pid.i = initial_integral
+  expected_integral = initial_integral
+  applied_torque = 0.0
+
+  for _ in range(100):
+    # An exactly applied request provides valid feedback with no actuator clamp.
+    # The speed condition must be the only reason integration stays frozen.
+    controller.update_actuator_feedback(SteeringActuatorFeedback(False, 0.0, applied_torque))
+    applied_torque, _, trace = run_frame(controller, vm, cp, speed, steer_limited=False)
+    if integrates:
+      expected_integral += controller.pid.k_i * controller.dt * trace.error
+    assert trace.i == pytest.approx(expected_integral, abs=1e-8)
+    assert abs(applied_torque) < 0.95
+
+  assert trace.error > 0.0
+  assert trace.p > 0.0
+  if integrates:
+    assert trace.i > initial_integral
+  else:
+    assert trace.i == pytest.approx(initial_integral)
 
 
 @pytest.mark.parametrize("speed", [0.0, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 30.0])
@@ -94,7 +125,7 @@ def test_nnff_gain_and_units_follow_model_availability(controller_factory):
     helper.model_valid = available
     controller.pid.i = 0.7
     run_frame(controller, vm, cp)
-    assert controller.pid.k_p == pytest.approx(0.8 if available else 5.5)
+    assert controller.pid.k_p == pytest.approx(0.8 if available else 65.0)
     assert controller.pid.i == 0.0
     expected_limit = 1.0 if available else controller.lateral_accel_from_torque(1.0, controller.torque_params)
     assert controller.pid.pos_limit == pytest.approx(expected_limit)
@@ -108,7 +139,7 @@ def test_inference_failure_restores_standard_gain_in_same_frame(controller_facto
   actual, _, trace = run_frame(controller, vm, cp)
   expected, _, baseline_trace = run_frame(baseline, baseline_vm, baseline_cp)
   assert not controller.nnff_assist.has_nn_model
-  assert controller.pid.k_p == pytest.approx(5.5)
+  assert controller.pid.k_p == pytest.approx(65.0)
   assert actual == pytest.approx(expected)
   assert trace.p == pytest.approx(baseline_trace.p)
 

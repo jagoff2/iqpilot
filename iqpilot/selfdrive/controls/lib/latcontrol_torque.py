@@ -556,10 +556,10 @@ class NeuralNetworkFeedForward(PilotLateralBrain):
 KP = 0.8
 KI = 0.15
 
-# Preserve the existing gain curve from 7.5 m/s upward. Below that speed, hold
-# the 7.5 m/s gain instead of magnifying small errors by as much as 250.
-INTERP_SPEEDS = [0, 7.5, 10, 15, 30]
-KP_INTERP = [5.5, 5.5, 3.5, 2.0, KP]
+# Restore standard curvature-error compensation for acceleration-space feedback
+# at low speed. NNFF selects its separate torque-space gain in update_limits().
+INTERP_SPEEDS = [1, 1.5, 2.0, 3.0, 5, 7.5, 10, 15, 30]
+KP_INTERP = [250, 120, 65, 30, 11.5, 5.5, 3.5, 2.0, KP]
 
 LP_FILTER_CUTOFF_HZ = 1.2
 JERK_LOOKAHEAD_SECONDS = 0.19
